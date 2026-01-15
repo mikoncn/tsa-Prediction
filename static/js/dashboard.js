@@ -1,261 +1,307 @@
 let chart;
 let allData = [];
-let availableYears = new Set();
+const availableYears = new Set();
 
 // 初始化图表
 function initChart() {
-  const ctx = document.getElementById("trafficChart").getContext("2d");
-  chart = new Chart(ctx, {
-    type: "line",
-    data: {
-      datasets: [
-        {
-          label: "旅客吞吐量",
-          data: [],
-          borderColor: "#007bff",
-          backgroundColor: "rgba(0, 123, 255, 0.1)",
-          borderWidth: 2,
-          fill: true,
-          tension: 0.3,
-          pointRadius: 2,
-          pointHoverRadius: 6,
+    const ctx = document.getElementById('trafficChart').getContext('2d');
+    chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            datasets: [{
+                label: '旅客吞吐量',
+                data: [],
+                borderColor: '#007bff',
+                backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.3,
+                
+                // 动态点样式 (Weather)
+                pointBackgroundColor: function(context) {
+                    const idx = context.dataIndex;
+                    const item = context.dataset.data[idx];
+                    if (!item || item.y === null) return 'transparent'; // Future/Null points invisible
+                    
+                    const w = item.weather_index;
+                    if (w >= 30) return '#dc3545'; // Red (Meltdown)
+                    if (w >= 15) return '#fd7e14'; // Orange (Severe)
+                    return '#007bff'; // Blue (Normal)
+                },
+                pointRadius: function(context) {
+                    const idx = context.dataIndex;
+                    const item = context.dataset.data[idx];
+                    if (!item || item.y === null) return 0;
+                    
+                    const w = item.weather_index;
+                    if (w >= 30) return 6; // Big dot for meltdown
+                    if (w >= 15) return 4;
+                    return 2;
+                },
+                pointHoverRadius: 8
+            }]
         },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: {
-        intersect: false,
-        mode: "index",
-      },
-      scales: {
-        x: {
-          type: "time",
-          time: {
-            unit: "month",
-            displayFormats: {
-              month: "yyyy年MM月",
-              day: "MM-dd (EEE)",
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index',
             },
-            tooltipFormat: "yyyy-MM-dd",
-          },
-          title: {
-            display: true,
-            text: "日期",
-          },
-        },
-        y: {
-          title: {
-            display: true,
-            text: "人次",
-          },
-          ticks: {
-            callback: function (value) {
-              return (value / 1000000).toFixed(1) + "M";
+            onClick: (e) => {
+                const points = chart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, true);
+                if (points.length) {
+                    const firstPoint = points[0];
+                    const item = chart.data.datasets[firstPoint.datasetIndex].data[firstPoint.index];
+                    if(item.y !== null) {
+                        alert(`日期: ${item.x}\n客流: ${item.y}\n气象指数: ${item.weather_index}\n节日: ${item.holiday_name || '无'}`);
+                    }
+                }
             },
-          },
-        },
-      },
-      plugins: {
-        tooltip: {
-          callbacks: {
-            title: function (context) {
-              const date = new Date(context[0].parsed.x);
-              return new Intl.DateTimeFormat("zh-CN", {
-                year: "numeric",
-                month: "2-digit",
-                day: "2-digit",
-                weekday: "short",
-              }).format(date);
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'month',
+                        displayFormats: {
+                            month: 'yyyy年MM月',
+                            day: 'MM-dd (EEE)'
+                        },
+                        tooltipFormat: 'yyyy-MM-dd'
+                    },
+                    title: { display: true, text: '日期' }
+                },
+                y: {
+                    title: { display: true, text: '人次' },
+                    ticks: {
+                        callback: function(value) {
+                            return (value / 1000000).toFixed(1) + 'M';
+                        }
+                    }
+                }
             },
-            label: function (context) {
-              return (
-                " 旅客: " + new Intl.NumberFormat().format(context.parsed.y)
-              );
-            },
-          },
-        },
-        zoom: {
-          pan: {
-            enabled: true,
-            mode: "x",
-            modifierKey: null,
-          },
-          zoom: {
-            wheel: {
-              enabled: true,
-            },
-            pinch: {
-              enabled: true,
-            },
-            mode: "x",
-          },
-          limits: {
-            x: { min: "original", max: "original" },
-          },
-        },
-      },
-    },
-  });
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        title: function(context) {
+                            const date = new Date(context[0].parsed.x);
+                            return new Intl.DateTimeFormat('zh-CN', { 
+                                year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' 
+                            }).format(date);
+                        },
+                        label: function(context) {
+                            const item = context.raw;
+                            if (item.y === null) return ' 预测中...';
+                            let label = ' 旅客: ' + new Intl.NumberFormat().format(item.y);
+                            return label;
+                        },
+                        afterLabel: function(context) {
+                            const item = context.raw;
+                            let lines = [];
+                            if (item.holiday_name) {
+                                lines.push(' 🎉 节日: ' + item.holiday_name);
+                            }
+                            if (item.weather_index > 0) {
+                                let weatherInfo = ` ⛈️ 气象指数: ${item.weather_index}`;
+                                if (item.weather_index >= 30) weatherInfo += ' (⚠️ 系统熔断)';
+                                else if (item.weather_index >= 15) weatherInfo += ' (⚠️ 恶劣天气)';
+                                lines.push(weatherInfo);
+                            }
+                            return lines;
+                        }
+                    }
+                },
+                annotation: {
+                    annotations: {} // 动态填充
+                },
+                zoom: {
+                    pan: { enabled: true, mode: 'x' },
+                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+                    limits: { x: {min: 'original', max: 'original'} }
+                }
+            }
+        }
+    });
 }
 
 // 加载数据
 async function loadData() {
-  try {
-    const response = await fetch("/api/data");
-    const data = await response.json();
+    try {
+        const response = await fetch('/api/data');
+        const data = await response.json();
+        
+        // 转换数据格式 (保留特征字段)
+        allData = data.map(item => ({
+            x: item.date,
+            y: item.throughput, // Note: this can be null for future
+            weather_index: item.weather_index || 0,
+            is_holiday: item.is_holiday || 0,
+            holiday_name: item.holiday_name || ''
+        }));
 
-    // 转换数据格式
-    allData = data.map((item) => ({
-      x: item.date,
-      y: item.throughput,
-    }));
+        // 提取年份
+        availableYears.clear();
+        allData.forEach(item => {
+            const year = item.x.split('-')[0];
+            availableYears.add(year);
+        });
+        populateYearSelect();
 
-    // 提取年份用于下拉框
-    allData.forEach((item) => {
-      const year = item.x.split("-")[0];
-      availableYears.add(year);
-    });
-    populateYearSelect();
-
-    // 默认显示全部
-    updateChart(allData);
-    updateStats(allData);
-  } catch (error) {
-    console.error("Error loading data:", error);
-    alert("加载数据失败，请检查后端服务是否启动。");
-  }
+        // 默认显示全部
+        applyFilters(); 
+        
+    } catch (error) {
+        console.error('Error loading data:', error);
+        alert('加载数据失败，请检查后端服务是否启动。');
+    }
 }
 
-// 填充年份下拉框
+// 填充年份选择框
 function populateYearSelect() {
-  const select = document.getElementById("yearSelect");
-  // 排序年份 (降序)
-  const sortedYears = Array.from(availableYears).sort((a, b) => b - a);
+    const yearSelect = document.getElementById('yearSelect');
+    yearSelect.innerHTML = '<option value="all">全部年份</option>';
+    const sortedYears = Array.from(availableYears).sort().reverse();
+    sortedYears.forEach(year => {
+        const option = document.createElement('option');
+        option.value = year;
+        option.text = year + '年';
+        yearSelect.add(option);
+    });
+}
 
-  sortedYears.forEach((year) => {
-    const option = document.createElement("option");
-    option.value = year;
-    option.textContent = year + "年";
-    select.appendChild(option);
-  });
+// 应用筛选
+function applyFilters() {
+    const selectedYear = document.getElementById('yearSelect').value;
+    
+    let filteredData = allData;
+    
+    if (selectedYear !== 'all') {
+        filteredData = allData.filter(item => item.x.startsWith(selectedYear));
+    }
+
+    updateChart(filteredData);
+    generateHolidayAnnotations(filteredData); 
+    updateStats(filteredData);
+}
+
+// 快捷范围筛选
+function setQuickRange(days) {
+    if (!allData || allData.length === 0) return;
+    
+    // 找最后一个有数据的日期
+    const validData = allData.filter(d => d.y !== null);
+    const lastDate = new Date(validData[validData.length - 1].x);
+    
+    // 计算起始日期
+    const startDate = new Date(lastDate);
+    startDate.setDate(lastDate.getDate() - days);
+    
+    const startStr = startDate.toISOString().split('T')[0];
+    
+    const filteredData = allData.filter(d => d.x >= startStr);
+    
+    // Reset select to 'all' visually to avoid confusion, or handle nicely
+    document.getElementById('yearSelect').value = 'all';
+    
+    updateChart(filteredData);
+    generateHolidayAnnotations(filteredData);
+    updateStats(filteredData);
 }
 
 // 更新图表数据
 function updateChart(data) {
-  chart.data.datasets[0].data = data;
-
-  // 自动调整 x 轴单位
-  if (data.length <= 60) {
-    chart.options.scales.x.time.unit = "day";
-  } else {
-    chart.options.scales.x.time.unit = "month";
-  }
-
-  chart.update();
-  chart.resetZoom();
+    chart.data.datasets[0].data = data;
+    chart.update();
 }
 
-function resetZoom() {
-  chart.resetZoom();
-}
+// 生成节假日 Annotations
+function generateHolidayAnnotations(data) {
+    const annotations = {};
+    let inHoliday = false;
+    let startDate = null;
+    let currentName = '';
 
-// 快捷范围选择
-function setQuickRange(range) {
-  // UI 状态
-  document
-    .querySelectorAll("button")
-    .forEach((btn) => btn.classList.remove("active"));
-  const btn = document.getElementById(`btn-${range}`);
-  if (btn) btn.classList.add("active");
+    const sortedData = [...data].sort((a, b) => new Date(a.x) - new Date(b.x));
 
-  // 重置下拉框
-  document.getElementById("yearSelect").value = "all";
-  document.getElementById("monthSelect").value = "all";
+    sortedData.forEach((item, index) => {
+        if (item.is_holiday === 1 && !inHoliday) {
+            inHoliday = true;
+            startDate = item.x;
+            currentName = item.holiday_name;
+        } else if ((item.is_holiday === 0 || item.holiday_name !== currentName) && inHoliday) {
+            const endDate = sortedData[index - 1].x;
+            const key = 'holiday_' + index;
+            annotations[key] = {
+                type: 'box',
+                xMin: startDate,
+                xMax: endDate,
+                backgroundColor: 'rgba(153, 102, 255, 0.15)',
+                borderWidth: 0,
+                drawTime: 'beforeDatasetsDraw'
+            };
+            
+            inHoliday = false;
+            if (item.is_holiday === 1) {
+                inHoliday = true;
+                startDate = item.x;
+                currentName = item.holiday_name;
+            }
+        }
+    });
 
-  if (range === "all") {
-    updateChart(allData);
-    updateStats(allData);
-  } else {
-    const now = new Date();
-    let cutoffDate = new Date();
-
-    if (range === "14d") {
-      cutoffDate.setDate(now.getDate() - 14);
-    } else if (range === "7d") {
-      cutoffDate.setDate(now.getDate() - 7);
+    if (inHoliday) {
+        const endDate = sortedData[sortedData.length - 1].x;
+        const key = 'holiday_last';
+        annotations[key] = {
+            type: 'box',
+            xMin: startDate,
+            xMax: endDate,
+            backgroundColor: 'rgba(153, 102, 255, 0.15)',
+            borderWidth: 0,
+            drawTime: 'beforeDatasetsDraw'
+        };
     }
-
-    const filteredData = allData.filter(
-      (item) => new Date(item.x) >= cutoffDate
-    );
-    updateChart(filteredData);
-    updateStats(filteredData);
-  }
-}
-
-// 级联筛选逻辑
-function applyFilters() {
-  // 清除快捷按钮状态
-  document
-    .querySelectorAll("button")
-    .forEach((btn) => btn.classList.remove("active"));
-
-  const selectedYear = document.getElementById("yearSelect").value;
-  const selectedMonth = document.getElementById("monthSelect").value;
-
-  let filteredData = allData;
-
-  // 1. 年份筛选
-  if (selectedYear !== "all") {
-    filteredData = filteredData.filter((item) =>
-      item.x.startsWith(selectedYear)
-    );
-  }
-
-  // 2. 月份筛选
-  if (selectedMonth !== "all") {
-    if (selectedYear !== "all") {
-      const prefix = `${selectedYear}-${selectedMonth}`;
-      filteredData = filteredData.filter((item) => item.x.startsWith(prefix));
-    } else {
-      const monthStr = `-${selectedMonth}-`;
-      filteredData = filteredData.filter((item) => item.x.includes(monthStr));
-    }
-  }
-
-  updateChart(filteredData);
-  updateStats(filteredData);
+    
+    chart.options.plugins.annotation.annotations = annotations;
+    chart.update(); 
 }
 
 // 更新统计信息
 function updateStats(data) {
-  if (data.length === 0) {
-    document.getElementById("latest-val").textContent = "-";
-    document.getElementById("max-val").textContent = "-";
-    document.getElementById("avg-val").textContent = "-";
-    return;
-  }
+    // 1. 找到最后一个"实际"有数据的点 (y !== null)
+    const validData = data.filter(item => item.y !== null);
 
-  // 最新值
-  const latest = data[data.length - 1].y;
-  document.getElementById("latest-val").textContent =
-    new Intl.NumberFormat().format(latest);
+    if (validData.length === 0) {
+        document.getElementById('latestPassengers').innerText = '-';
+        document.getElementById('prevPassengers').innerText = '-';
+        document.getElementById('predPassengers').innerText = '数据不足';
+        return;
+    }
 
-  // 峰值
-  const max = Math.max(...data.map((d) => d.y));
-  document.getElementById("max-val").textContent =
-    new Intl.NumberFormat().format(max);
+    // 2. 获取最新一天 (Latest)
+    const latest = validData[validData.length - 1];
+    document.getElementById('latestPassengers').innerText = (latest.y / 1000000).toFixed(2) + 'M';
+    document.getElementById('latestDate').innerText = latest.x;
 
-  // 平均值
-  const avg = data.reduce((a, b) => a + b.y, 0) / data.length;
-  document.getElementById("avg-val").textContent =
-    new Intl.NumberFormat().format(Math.round(avg));
+    // 3. 获取前一天 (Previous)
+    if (validData.length >= 2) {
+        const prev = validData[validData.length - 2];
+        document.getElementById('prevPassengers').innerText = (prev.y / 1000000).toFixed(2) + 'M';
+        document.getElementById('prevDate').innerText = prev.x;
+    } else {
+        document.getElementById('prevPassengers').innerText = '-';
+        document.getElementById('prevDate').innerText = '';
+    }
+
+    // 4. 预测客流 (Predicted) - 占位符
+    // 未来如果模型接入，这里可以读取 validData 之后的第一个点(如果后端给了预测值)
+    // 目前保持"占位"状态
+    document.getElementById('predPassengers').innerText = 'Waiting for Model...';
 }
 
-// 启动
-document.addEventListener("DOMContentLoaded", () => {
-  initChart();
-  loadData();
+document.getElementById('yearSelect').addEventListener('change', applyFilters);
+
+document.addEventListener('DOMContentLoaded', () => {
+    initChart();
+    loadData();
 });

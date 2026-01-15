@@ -73,30 +73,24 @@ def fetch_weather(url, airports, start, end, is_forecast=False):
         df['windspeed_kmh'] = daily_wind_speed_10m_max
         df['precipitation_mm'] = daily_precipitation_sum
         
-        # 简单评分逻辑
-        # 暴雪 (High): Snow > 3.0 cm -> 5分
-        # 狂风 (Med): Wind > 40 km/h -> 2分
-        # 暴雨 (Low): Rain > 25 mm -> 1分
+        # 优化后的评分逻辑 (Tuned for Bomb Cyclone)
+        # 目标: 让 2022-12-22 这种极端天气能触发 Bad Hub (Score >= 3)
+        # Snow > 1.0 cm -> 5分 (雪对航空影响巨大，1cm 足以造成延误)
+        # Wind > 29.0 km/h -> 3分 (大风是主要延误因素，特别是侧风，门槛降低以捕获更多事件)
+        # Rain > 20.0 mm -> 1分 (大雨)
         
-        conditions = [
-            (df['snowfall_cm'] > 3.0),
-            (df['windspeed_kmh'] > 40.0),
-            (df['precipitation_mm'] > 25.0)
-        ]
-        scores = [5, 2, 1]
+        # 极其详细且鲁棒的评分 (分解为 3 列)
+        df['score_snow'] = (df['snowfall_cm'] > 1.0).astype(int) * 5
+        df['score_wind'] = (df['windspeed_kmh'] > 29.0).astype(int) * 3
+        df['score_rain'] = (df['precipitation_mm'] > 20.0).astype(int) * 1
+        df['severity_score'] = df['score_snow'] + df['score_wind'] + df['score_rain']
         
-        # 向量化计算得分 (取最大匹配? 不, 应该是叠加)
-        # 题目要求: "评分...然后求和"
-        # 比如芝加哥大雪(5)+纽约大风(2)，这里是针对单个机场的得分
-        # 解释：单个机场如果同时暴雪+大风，应该是叠加比较合理，或者取最大?
-        # 通常恶劣天气是综合的。这里我们假设叠加: Snow(5) + Wind(2) = 7 (这是一个很烂的天气)
+        # 调试输出 (针对用户提及的 1-10 日)
+        target_check = df[df['date'].dt.strftime('%Y-%m-%d') == '2026-01-10']
+        if not target_check.empty:
+            print(f"DEBUG Loop [{code}]: date=2026-01-10, Wind={target_check['windspeed_kmh'].values[0]}, WindScore={target_check['score_wind'].values[0]}, FinalScore={target_check['severity_score'].values[0]}")
         
-        df['severity_score'] = 0
-        df.loc[df['snowfall_cm'] > 3.0, 'severity_score'] += 5
-        df.loc[df['windspeed_kmh'] > 40.0, 'severity_score'] += 2
-        df.loc[df['precipitation_mm'] > 25.0, 'severity_score'] += 1
-        
-        all_data.append(df)
+        all_data.append(df[['date', 'airport', 'snowfall_cm', 'windspeed_kmh', 'precipitation_mm', 'severity_score']])
         
     return pd.concat(all_data)
 
@@ -110,34 +104,73 @@ try:
     df_forecast = fetch_weather(url_forecast, AIRPORTS, TODAY, END_DATE)
     
     # 3. 合并
-    print("正在合并数据...")
-    full_df = pd.concat([df_archive, df_forecast])
+    print("正在合并历史与预测数据...")
+    full_df = pd.concat([df_archive, df_forecast], ignore_index=True)
     
-    # 4. 聚合计算全美指数
-    # 这里的 weather_index = Sum(5个机场的 severity_score)
-    # 按 Date 分组求和
+    # 彻底检查重复项
+    dupes = full_df.duplicated(subset=['date', 'airport']).sum()
+    if dupes > 0:
+        print(f"警告: 发现 {dupes} 条重复的 [日期+机场] 数据，正在进行去重 (保留最新)...")
+        full_df = full_df.drop_duplicates(subset=['date', 'airport'], keep='last')
+    
+    # 4. 聚合计算全美指数 (Refined Logic)
+    # Refined Formula: Base Score + System Penalty
+    # - Base Score: Sum of all hub scores
+    # - Bad Hub: Score >= 3
+    # - Penalty: 
+    #   - >= 2 Bad Hubs: +10
+    #   - >= 3 Bad Hubs: +20
+    
     full_df['date'] = full_df['date'].dt.strftime('%Y-%m-%d')
-    weather_index_df = full_df.groupby('date')['severity_score'].sum().reset_index()
-    weather_index_df.rename(columns={'severity_score': 'weather_index'}, inplace=True)
+    
+    def calculate_daily_index(group):
+        base_score = group['severity_score'].sum()
+        
+        # 统计坏点 (Bad Hub Counter)
+        bad_hubs_count = (group['severity_score'] >= 3).sum()
+        
+        if group['date'].iloc[0] == '2026-01-10':
+            print(f"\nDEBUG Aggregation [2026-01-10]:")
+            print(group[['airport', 'severity_score']])
+            print(f"Base Score: {base_score}, Bad Hubs: {bad_hubs_count}")
+
+        penalty = 0
+        if bad_hubs_count >= 3:
+            penalty = 20
+        elif bad_hubs_count >= 2:
+            penalty = 10
+            
+        return base_score + penalty
+
+    print("正在计算多枢纽熔断指数...")
+    weather_index_series = full_df.groupby('date').apply(calculate_daily_index)
+    
+    # 转换为 DataFrame
+    weather_index_df = weather_index_series.reset_index(name='weather_index')
     
     # 5. 输出
     output_file = "weather_features.csv"
     print(f"写入文件 {output_file} ...")
     weather_index_df.to_csv(output_file, index=False)
     
-    # 6. 验证炸弹气旋 (2022-12-22)
-    print("\n=== 验证炸弹气旋 (2022-12-22) ===")
-    target_date = "2022-12-22"
-    row = weather_index_df[weather_index_df['date'] == target_date]
-    if not row.empty:
-        print(f"Date: {target_date}, Weather Index: {row['weather_index'].values[0]}")
-        
-        # 打印当天各机场详情
-        print("详情:")
-        details = full_df[full_df['date'] == target_date]
+    # 7. 检查 2026-01-10 (用户指定日期)
+    print("\n=== 检查 2026-01-10 原始数据与评分 ===")
+    check_date = "2026-01-10"
+    details = full_df[full_df['date'] == check_date]
+    if not details.empty:
         print(details[['airport', 'snowfall_cm', 'windspeed_kmh', 'precipitation_mm', 'severity_score']])
+        
+        # 逐行手动检查逻辑
+        for _, row in details.iterrows():
+            print(f"Airport: {row['airport']}")
+            print(f"  Snow {row['snowfall_cm']} > 1.0? {row['snowfall_cm'] > 1.0}")
+            print(f"  Wind {row['windspeed_kmh']} > 29.0? {row['windspeed_kmh'] > 29.0}")
+            print(f"  Score allocated: {row['severity_score']}")
+            
+        row_summary = weather_index_df[weather_index_df['date'] == check_date]
+        print(f"\nFinal Weather Index from CSV/DB: {row_summary['weather_index'].values[0]}")
     else:
-        print(f"未找到 {target_date} 数据")
+        print(f"未找到 {check_date} 数据")
 
 except Exception as e:
     print(f"Error: {e}")

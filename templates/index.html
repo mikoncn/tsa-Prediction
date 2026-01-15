@@ -12,60 +12,47 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
+    <!-- Annotation Plugin (关键: 必须引入) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
 </head>
 <body>
     <div class="container">
-        <h1>TSA 旅客吞吐量历史趋势</h1>
+        <h1>TSA 旅客吞吐量 - Mikon AI Scout</h1>
         
         <div class="controls">
             <!-- 快捷按钮 -->
-            <button onclick="setQuickRange('all')" class="active" id="btn-all">全部数据</button>
-            <button onclick="setQuickRange('14d')" id="btn-14d">最近 14 天</button>
-            <button onclick="setQuickRange('7d')" id="btn-7d">最近 7 天</button>
+            <button onclick="setQuickRange(365)" class="active">最近1年</button>
+            <button onclick="setQuickRange(180)">最近半年</button>
+            <button onclick="setQuickRange(30)">最近30天</button>
             
             <div class="divider"></div>
 
-            <!-- 级联筛选 -->
-            <select id="yearSelect" onchange="applyFilters()">
-                <option value="all">所有年份</option>
-            </select>
-            
-            <select id="monthSelect" onchange="applyFilters()">
-                <option value="all">全年</option>
-                <option value="01">1月</option>
-                <option value="02">2月</option>
-                <option value="03">3月</option>
-                <option value="04">4月</option>
-                <option value="05">5月</option>
-                <option value="06">6月</option>
-                <option value="07">7月</option>
-                <option value="08">8月</option>
-                <option value="09">9月</option>
-                <option value="10">10月</option>
-                <option value="11">11月</option>
-                <option value="12">12月</option>
+            <!-- 年份筛选 -->
+            <select id="yearSelect">
+                <!-- JS 动态填充 -->
             </select>
 
-            <button onclick="resetZoom()" style="margin-left: 20px; border-color: #666;">重置缩放</button>
+            <button onclick="chart.resetZoom()" style="margin-left: 20px;">重置缩放</button>
         </div>
 
         <div class="chart-container">
             <canvas id="trafficChart"></canvas>
         </div>
-        <p class="hint">提示：在图表上使用鼠标滚轮缩放，按住鼠标左键可左右拖动时间轴。</p>
+        <p class="hint">🖱️ 提示：点击红点查看详情 | 滚轮缩放 | 拖拽平移</p>
 
-        <div class="stats">
-            <div class="stat-item">
-                <div class="stat-value" id="latest-val">-</div>
-                <div class="stat-label">最新单日客流</div>
+        <!-- 统计面板 (IDs 必须与 dashboard.js 一致) -->
+        <div class="stats-panel" style="display: flex; justify-content: space-around; margin-top: 20px; text-align: center;">
+            <div class="stat-card">
+                <h3>最新客流 (<span id="latestDate">-</span>)</h3>
+                <div class="value" id="latestPassengers" style="font-size: 1.5em; font-weight: bold; color: #007bff;">-</div>
             </div>
-            <div class="stat-item">
-                <div class="stat-value" id="max-val">-</div>
-                <div class="stat-label">历史峰值</div>
+            <div class="stat-card">
+                <h3>前日客流 (<span id="prevDate">-</span>)</h3>
+                <div class="value" id="prevPassengers" style="font-size: 1.5em; font-weight: bold; color: #6c757d;">-</div>
             </div>
-            <div class="stat-item">
-                <div class="stat-value" id="avg-val">-</div>
-                <div class="stat-label">当前显示平均值</div>
+            <div class="stat-card" style="opacity: 0.6; border: 1px dashed #ccc;">
+                <h3>预测客流 (下个交易日)</h3>
+                <div class="value" id="predPassengers" style="font-size: 1.5em; font-weight: bold; color: #28a745;">等待模型接入...</div>
             </div>
         </div>
     </div>
