@@ -179,15 +179,32 @@ async function fetchPredictions() {
         const response = await fetch('/api/predictions');
         const data = await response.json();
         
+        // [FIX] Merge History and Forecast for Chart
+        let combinedPredictions = [];
+        
+        // 1. Add History (Past Predictions)
+        if (data.history && data.history.length > 0) {
+            data.history.forEach(item => {
+                combinedPredictions.push({
+                    x: item.date,
+                    y: item.predicted
+                });
+            });
+        }
+        
+        // 2. Add Forecast (Future Predictions)
         if (data.forecast && data.forecast.length > 0) {
-            const forecastPoints = data.forecast.map(item => ({
-                x: item.ds,
-                y: item.predicted_throughput
-            }));
+            data.forecast.forEach(item => {
+                // Avoid duplicates if forecast overlaps with history (though logic should prevent it)
+                if (!combinedPredictions.some(p => p.x === item.ds)) {
+                    combinedPredictions.push({
+                        x: item.ds,
+                        y: item.predicted_throughput
+                    });
+                }
+            });
             
-            chart.data.datasets[1].data = forecastPoints;
-            chart.update();
-
+            // Update dropdown (only for Future Forecast)
             const select = document.getElementById('predDateSelect');
             select.innerHTML = '';
             forecastDataMap = {};
@@ -206,10 +223,14 @@ async function fetchPredictions() {
             updatePredictionDisplay(select.value);
             select.onchange = function() { updatePredictionDisplay(this.value); };
         } else {
-            chart.data.datasets[1].data = [];
-            chart.update();
-            document.getElementById('predPassengers').innerText = '-';
+             document.getElementById('predPassengers').innerText = '-';
         }
+
+        // 3. Sort by date and update Chart
+        combinedPredictions.sort((a, b) => new Date(a.x) - new Date(b.x));
+        chart.data.datasets[1].data = combinedPredictions;
+        chart.update();
+
 
         if (data.validation && data.validation.length > 0) {
             const tableBody = document.querySelector('#accuracyTable tbody');

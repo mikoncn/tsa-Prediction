@@ -67,24 +67,29 @@ def get_predictions():
 
     # 2. 加载历史预测记录并与真实流量合并 (用于模型回测表格)
     try:
-        print(f"DEBUG: CWD = {os.getcwd()}")
+        # print(f"DEBUG: CWD = {os.getcwd()}") # Removed debug print
         if os.path.exists("prediction_history.csv"):
-            print("DEBUG: History file found.")
+            # print("DEBUG: History file found.") # Removed debug print
             df_hist = pd.read_csv("prediction_history.csv")
             df_actual = pd.read_csv("TSA_Final_Analysis.csv")
             
-            print(f"DEBUG: Hist Len={len(df_hist)}, Actual Len={len(df_actual)}")
+            # print(f"DEBUG: Hist Len={len(df_hist)}, Actual Len={len(df_actual)}") # Removed debug print
             
             # Merge Actuals into History
             # df_hist: target_date, predicted_throughput, model_run_date
             # df_actual: date, throughput
             
             # Ensure dates are strings YYYY-MM-DD
-            df_hist['target_date'] = pd.to_datetime(df_hist['target_date']).dt.strftime('%Y-%m-%d')
-            df_actual['date'] = pd.to_datetime(df_actual['date']).dt.strftime('%Y-%m-%d')
-            
+            # [FIX] Handle mixed formats (YYYY-MM-DD vs YYYY-MM-DD HH:MM:SS)
+            try:
+                df_hist['target_date'] = pd.to_datetime(df_hist['target_date'], format='mixed').dt.strftime('%Y-%m-%d')
+                df_actual['date'] = pd.to_datetime(df_actual['date']).dt.strftime('%Y-%m-%d')
+            except Exception as e:
+                print(f"ERROR: Date conversion failed: {e}")
+                raise e
+
             merged = pd.merge(df_hist, df_actual, left_on='target_date', right_on='date', how='inner')
-            print(f"DEBUG: Merged Len={len(merged)}")
+            # print(f"DEBUG: Merged Len={len(merged)}") # Removed debug print
             
             # Logic: For each target_date, find the prediction made 1 day before (or latest available)
             # Simple approach: Sort by model_run_date desc, drop duplicates on target_date
@@ -117,11 +122,38 @@ def get_predictions():
             
             # [关键逻辑] 只返回前端需要的字段
             result['validation'] = merged[['date', 'actual', 'predicted', 'difference', 'error_rate']].to_dict(orient='records')
+            
+            # [NEW] Return full history for charting (The Orange Line of Truth)
+            # Logic: For each target_date, keep the latest prediction that was made
+            # We already have df_hist. 
+            # 1. Convert target_date to string if not already
+            # [FIX] Handle mixed formats (YYYY-MM-DD vs YYYY-MM-DD HH:MM:SS)
+            df_hist['target_date'] = pd.to_datetime(df_hist['target_date'], format='mixed').dt.strftime('%Y-%m-%d')
+            # 2. Sort by model_run_date desc to get latest run first
+            df_hist_sorted = df_hist.sort_values(by=['target_date', 'model_run_date'], ascending=[True, False])
+            # 3. Drop duplicates on target_date, keeping first (which is latest run due to sort? Wait.
+            # actually we want to sort by target_date asc, model_run_date desc.
+            # Then groupby target_date and take head(1)? Or drop_duplicates(subset=['target_date'], keep='first')
+            
+            # Let's do: Sort by model_run_date DESC, so latest run is at top. 
+            # Then drop duplicates on target_date, keep='first'.
+            df_latest_hist = df_hist.sort_values('model_run_date', ascending=False).drop_duplicates('target_date', keep='first')
+            
+            # Sort by target_date ASC for the chart
+            df_latest_hist = df_latest_hist.sort_values('target_date', ascending=True)
+            
+            result['history'] = df_latest_hist[['target_date', 'predicted_throughput']].rename(columns={
+                'target_date': 'date',
+                'predicted_throughput': 'predicted'
+            }).to_dict(orient='records')
+            
         else:
             print("DEBUG: prediction_history.csv NOT found.")
             result['validation'] = []
+            result['history'] = []
     except Exception as e:
         result['validation'] = []
+        result['history'] = []
         print(f"Error loading validation log: {e}")
         
     return jsonify(result)
@@ -227,4 +259,4 @@ def update_data():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5001)

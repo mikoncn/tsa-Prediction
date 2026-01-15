@@ -253,8 +253,29 @@ for idx, row in future_df.iterrows():
             if abs(days_diff) <= 7 and days_diff != 0:
                  future_df.at[idx, 'is_holiday_travel_window'] = 1
 
-future_df['weather_index'] = 0 
-future_df['is_spring_break'] = 0 
+# [FIX] Load Real Weather Forecast
+print("   Merging Real Weather Forecast...")
+try:
+    df_weather = pd.read_csv("weather_features.csv")
+    df_weather['date'] = pd.to_datetime(df_weather['date'])
+    # Merge weather_index
+    future_df = future_df.merge(df_weather[['date', 'weather_index']], left_on='ds', right_on='date', how='left')
+    future_df['weather_index'] = future_df['weather_index'].fillna(0).astype(int)
+    # Drop temp col
+    if 'date' in future_df.columns:
+        future_df.drop(columns=['date'], inplace=True)
+    print("   Weather features merged.")
+except Exception as e:
+    print(f"   WARNING: Failed to load weather features ({e}). Defaulting to 0.")
+    future_df['weather_index'] = 0
+
+# [FIX] Real Spring Break Logic (March/April + Weekend + Not Holiday)
+# Logic: Month is 3 or 4, Weekend, Not Holiday
+future_df['is_spring_break'] = 0
+mask_sb = (future_df['ds'].dt.month.isin([3, 4])) & \
+          (future_df['ds'].dt.dayofweek.isin([5, 6])) & \
+          (future_df['is_holiday'] == 0)
+future_df.loc[mask_sb, 'is_spring_break'] = 1
 
 # E. 预测
 X_future = future_df[features]
