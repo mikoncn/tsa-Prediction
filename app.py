@@ -181,5 +181,50 @@ def run_prediction():
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# API: 一键更新数据(抓取TSA+天气+合并)
+@app.route('/api/update_data', methods=['POST'])
+def update_data():
+    try:
+        import subprocess
+        import sys
+        print("🔄 开始数据更新流程...")
+        
+        steps = [
+            {'name': '抓取最新TSA数据', 'cmd': [sys.executable, 'build_tsa_db.py', '--latest'], 'timeout': 30},
+            {'name': '同步天气特征', 'cmd': [sys.executable, 'get_weather_features.py'], 'timeout': 45},
+            {'name': '合并数据库', 'cmd': [sys.executable, 'merge_db.py'], 'timeout': 30}
+        ]
+        
+        results = []
+        for step in steps:
+            print(f"\n[步骤] {step['name']}...")
+            result = subprocess.run(
+                step['cmd'], capture_output=True, text=True,
+                encoding='utf-8', errors='replace',
+                cwd=os.getcwd(), timeout=step['timeout']
+            )
+            
+            if result.returncode == 0:
+                print(f"✅ {step['name']} 完成")
+                output_lines = result.stdout.strip().split('\n')
+                summary = '\n'.join(output_lines[-3:]) if len(output_lines) > 3 else result.stdout
+                results.append({'step': step['name'], 'status': 'success', 'summary': summary})
+            else:
+                error_msg = result.stderr if result.stderr else result.stdout
+                print(f"❌ {step['name']} 失败: {error_msg}")
+                return jsonify({'status': 'error', 'message': f'{step["name"]}失败', 'error': error_msg}), 500
+        
+        print("\n✅ 数据更新流程全部完成")
+        return jsonify({'status': 'success', 'message': '数据更新成功!', 'results': results})
+        
+    except subprocess.TimeoutExpired as e:
+        print(f"❌ 超时: {e}")
+        return jsonify({'status': 'error', 'message': f'操作超时: {e}'}), 500
+    except Exception as e:
+        print(f"❌ 错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True)

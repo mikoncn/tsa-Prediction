@@ -4,6 +4,7 @@ import sqlite3
 import datetime
 import re
 import time
+import argparse
 
 # 配置
 BASE_URL = "https://www.tsa.gov"
@@ -121,35 +122,47 @@ def save_to_db(all_data):
     print(f"成功存入/更新了 {len(all_data)} 条记录。")
 
 def main():
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description='TSA 旅客吞吐量数据抓取工具')
+    parser.add_argument('--latest', action='store_true', 
+                        help='仅抓取首页最新数据(增量更新模式)')
+    args = parser.parse_args()
+    
     init_db()
     
-    # 1. 获取主页以发现链接
-    print("正在获取主页以分析年份链接...")
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        resp = requests.get(START_URL, headers=headers)
-        soup = BeautifulSoup(resp.content, 'html.parser')
-        year_links = get_year_links(soup)
-        print(f"发现以下年份页面: {year_links}")
-        
-    except Exception as e:
-        print(f"获取主页失败，将尝试默认年份列表: {e}")
-        # 后备方案：如果没有找到链接，尝试构建最近几年的 URL
-        current_year = datetime.datetime.now().year
-        year_links = [START_URL] + [f"{START_URL}/{y}" for y in range(current_year-1, 2018, -1)]
-        print(f"使用后备链接列表: {year_links}")
-
     all_data = []
     
-    # 2. 遍历所有页面抓取
-    for link in year_links:
-        page_data = scrape_page(link)
+    if args.latest:
+        # 增量更新模式: 仅抓取首页
+        print("[增量模式] 仅抓取 TSA 首页最新数据...")
+        page_data = scrape_page(START_URL)
         all_data.extend(page_data)
-        time.sleep(1) # 礼貌爬取，避免请求过快
+    else:
+        # 全量模式: 抓取所有年份
+        print("[全量模式] 正在获取主页以分析年份链接...")
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+            resp = requests.get(START_URL, headers=headers)
+            soup = BeautifulSoup(resp.content, 'html.parser')
+            year_links = get_year_links(soup)
+            print(f"发现以下年份页面: {year_links}")
+            
+        except Exception as e:
+            print(f"获取主页失败，将尝试默认年份列表: {e}")
+            # 后备方案：如果没有找到链接，尝试构建最近几年的 URL
+            current_year = datetime.datetime.now().year
+            year_links = [START_URL] + [f"{START_URL}/{y}" for y in range(current_year-1, 2018, -1)]
+            print(f"使用后备链接列表: {year_links}")
+
+        # 遍历所有页面抓取
+        for link in year_links:
+            page_data = scrape_page(link)
+            all_data.extend(page_data)
+            time.sleep(1) # 礼貌爬取，避免请求过快
         
-    # 3. 存入数据库
+    # 存入数据库
     save_to_db(all_data)
     print("全部完成。")
 

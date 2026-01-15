@@ -429,3 +429,43 @@ document.addEventListener('DOMContentLoaded', () => {
     initChart();
     loadData();
 });
+
+// 更新数据功能: 调用后端 API 抓取最新 TSA 数据并同步天气
+async function updateData() {
+    const btn = document.getElementById('btnUpdateData');
+    const originalText = btn.innerText;
+    
+    try {
+        // 更新按钮状态
+        btn.disabled = true;
+        btn.innerText = '⏳ 更新中...';
+        btn.style.backgroundColor = '#6c757d';
+        
+        console.log('开始数据更新...');
+        const response = await fetch('/api/update_data', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.status === 'success') {
+            alert('✅ ' + data.message);
+            console.log('更新成功:', data.results);
+            // 重新加载数据并刷新图表
+            await loadData();
+        } else {
+            const errorMsg = data.message || '更新失败';
+            alert('❌ ' + errorMsg);
+            console.error('更新失败:', data);
+        }
+    } catch (error) {
+        console.error('更新错误:', error);
+        alert('❌ 网络错误，请检查后端服务');
+    } finally {
+        // 恢复按钮状态
+        btn.disabled = false;
+        btn.innerText = originalText;
+        btn.style.backgroundColor = '#17a2b8';
+    }
+}
