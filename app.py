@@ -6,15 +6,18 @@ import os
 app = Flask(__name__)
 DB_PATH = 'tsa_data.db'
 
+# 获取数据库连接的助手函数
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = sqlite3.Row  # 允许通过列名访问结果
     return conn
 
+# 主页路由：返回仪表盘 HTML
 @app.route('/')
 def index():
     return render_template('index.html')
 
+# API: 获取历史流量数据 (用于绘制主图表)
 @app.route('/api/data')
 def get_data():
     conn = get_db_connection()
@@ -49,11 +52,12 @@ def get_data():
         data.append(item)
         
     return jsonify(data)
+# API: 获取预测结果和历史验证数据
 @app.route('/api/predictions')
 def get_predictions():
     result = {}
     
-    # 1. Load Future Forecast
+    # 1. 加载未来 7 天的预测结果 (从 train_xgb.py 生成的 CSV)
     try:
         df_forecast = pd.read_csv("xgb_forecast.csv")
         result['forecast'] = df_forecast.to_dict(orient='records')
@@ -61,7 +65,7 @@ def get_predictions():
         result['forecast'] = []
         print(f"Error loading forecast: {e}")
 
-    # 2. Load Historical Validation (Rolling Log)
+    # 2. 加载历史预测记录并与真实流量合并 (用于模型回测表格)
     try:
         print(f"DEBUG: CWD = {os.getcwd()}")
         if os.path.exists("prediction_history.csv"):
@@ -111,6 +115,7 @@ def get_predictions():
             # Replace Inf with 0, NaN with 0 (or None)
             merged = merged.fillna(0)
             
+            # [关键逻辑] 只返回前端需要的字段
             result['validation'] = merged[['date', 'actual', 'predicted', 'difference', 'error_rate']].to_dict(orient='records')
         else:
             print("DEBUG: prediction_history.csv NOT found.")
@@ -121,26 +126,26 @@ def get_predictions():
         
     return jsonify(result)
 
-# [NEW] Trigger Model Prediction On-Demand
+# API: 点击页面按钮时手动触发模型重新训练和预测
 @app.route('/api/run_prediction', methods=['POST'])
 def run_prediction():
     try:
         import subprocess
         import sys
-        print("🚀 Triggering Model Run (train_xgb.py)...")
+        print("🚀 正在触发模型运行 (train_xgb.py)...")
         print(f"   Python executable: {sys.executable}")
         print(f"   Working directory: {os.getcwd()}")
         
-        # Run script (blocking) with proper working directory
-        # 在 Windows 上需要处理 GBK 编码的中文输出
+        # 运行子进程执行训练脚本
+        # 注意：此处处理了 Windows 环境下的 GBK 编码问题
         result = subprocess.run(
             [sys.executable, 'train_xgb.py'], 
             capture_output=True, 
             text=True,
             encoding='utf-8',
-            errors='replace',  # 替换无法解码的字符而不是抛出异常
+            errors='replace',  # 解码失败时替换字符而非报错
             cwd=os.getcwd(),
-            timeout=60  # 60秒超时
+            timeout=60  # 60秒超时保护
         )
         
         # 打印完整输出用于调试

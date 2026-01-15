@@ -2,27 +2,28 @@ let chart;
 let allData = [];
 const availableYears = new Set();
 
-// 初始化图表
+// 初始化 Chart.js 图表
 function initChart() {
     const ctx = document.getElementById('trafficChart').getContext('2d');
     chart = new Chart(ctx, {
         type: 'line',
         data: {
             datasets: [{
-                label: '旅客吞吐量',
+                label: '历史旅客吞吐量',
                 data: [],
                 borderColor: '#007bff',
                 backgroundColor: 'rgba(0, 123, 255, 0.1)',
                 borderWidth: 2,
                 fill: true,
                 tension: 0.3,
+                // 根据气象指数动态改变数据点颜色
                 pointBackgroundColor: function(context) {
                     const idx = context.dataIndex;
                     const item = context.dataset.data[idx];
                     if (!item || item.y === null) return 'transparent';
                     const w = item.weather_index;
-                    if (w >= 30) return '#dc3545';
-                    if (w >= 15) return '#fd7e14';
+                    if (w >= 30) return '#dc3545'; // 极端天气(红)
+                    if (w >= 15) return '#fd7e14'; // 恶劣天气(橙)
                     return '#007bff';
                 },
                 pointRadius: function(context) {
@@ -138,11 +139,13 @@ function initChart() {
 }
 
 // 加载数据
+// 从后端 API 加载历史数据
 async function loadData() {
     try {
         const response = await fetch('/api/data');
         const data = await response.json();
         
+        // 格式化数据供 Chart.js 使用
         allData = data.map(item => ({
             x: item.date,
             y: item.throughput,
@@ -151,6 +154,7 @@ async function loadData() {
             holiday_name: item.holiday_name || ''
         }));
 
+        // 更新年份筛选器
         availableYears.clear();
         allData.forEach(item => {
             const year = item.x.split('-')[0];
@@ -158,13 +162,13 @@ async function loadData() {
         });
         populateYearSelect();
 
-        updateZoomLimits();
-        setQuickRange(30);
-        fetchPredictions();
+        updateZoomLimits();    // 更新缩放限制
+        setQuickRange(30);     // 默认显示最近30天
+        fetchPredictions();    // 加载预测数据
         
     } catch (error) {
         console.error('Error loading data:', error);
-        alert('加载数据失败，请检查后端服务');
+        alert('无法连接到后端服务，请确保 app.py 已启动');
     }
 }
 
