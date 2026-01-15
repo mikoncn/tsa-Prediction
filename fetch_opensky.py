@@ -1,3 +1,7 @@
+# fetch_opensky.py - OpenSky 网络数据抓取核心脚本
+# 功能：从 OpenSky Network API 抓取美国核心枢纽机场的航班抵达数据，用于 TSA 客流模型训练。
+# 注意事项：受限于 OpenSky 的 API 积分制（Basic 账户每日 4000 点），需谨慎处理抓取频率。
+
 import requests
 import sqlite3
 import pandas as pd
@@ -7,108 +11,93 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
-# Configuration
+# 数据库与接口配置
 DB_PATH = 'tsa_data.db'
 BASE_URL = "https://opensky-network.org/api/flights/arrival"
-# Top 10 Busiest US Airports
+# 监控美国吞吐量最大的前 10 个枢纽机场，这些机场的变动对 TSA 总量具有极强的代表性
 AIRPORTS = [
     'KATL', 'KORD', 'KDFW', 'KDEN', 'KLAX', 
     'KJFK', 'KMCO', 'KLAS', 'KCLT', 'KMIA'
 ]
 
-# OAuth2 Token Management
+# OAuth2 凭据管理：OpenSky 自 2025 年 3 月起强制要求新账号使用 OAuth2 认证
 TOKEN_URL = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
 current_token = None
 token_expiry = 0
 
 def load_credentials():
+    """从本地 credentials.json 加载 API 身份信息"""
     try:
         if not os.path.exists("credentials.json"):
-            print("   [ERROR] credentials.json not found.")
+            print("   [错误] 未找到 credentials.json 凭据文件。")
             return None, None
             
         with open("credentials.json", "r") as f:
             creds = json.load(f)
             return creds.get("clientId"), creds.get("clientSecret")
     except Exception as e:
-        print(f"Error loading credentials: {e}")
+        print(f"   [异常] 加载凭据失败: {e}")
         return None, None
 
-USERNAME, PASSWORD = load_credentials()
-
-def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
 def get_oauth_token():
+    """由于 OpenSky Token 有效期较短，该函数负责按需获取或更新 Bearer Token"""
     global current_token, token_expiry
-    now = time.time()
     
-    # Reuse token if valid (buffer 60s)
-    if current_token and now < token_expiry - 60:
+    # 如果系统当前已有有效 Token 且未过期，直接复用
+    if current_token and time.time() < token_expiry - 60:
         return current_token
-    
-    if not USERNAME or not PASSWORD:
-        print("   [ERROR] No credentials loaded.")
+        
+    client_id, client_secret = load_credentials()
+    if not client_id or not client_secret:
         return None
-        
+
+    data = {
+        'grant_type': 'client_credentials',
+        'client_id': client_id,
+        'client_secret': client_secret
+    }
+    
     try:
-        data = {
-            'grant_type': 'client_credentials',
-            'client_id': USERNAME, 
-            'client_secret': PASSWORD 
-        }
         resp = requests.post(TOKEN_URL, data=data, timeout=10)
-        
         if resp.status_code == 200:
             token_data = resp.json()
-            current_token = token_data.get('access_token')
-            expires_in = token_data.get('expires_in', 3600)
-            token_expiry = now + expires_in
-            print("   [AUTH] OAuth Token Refreshed.")
+            current_token = token_data['access_token']
+            # 设置过期缓冲期
+            token_expiry = time.time() + token_data['expires_in']
+            print("   [授权] OAuth Token 已刷新。")
             return current_token
         else:
-            print(f"   [AUTH] Token Fetch Failed: {resp.status_code}")
-            print(resp.text)
+            print(f"   [授权错误] 无法获取 Token: {resp.status_code}")
             return None
     except Exception as e:
-        print(f"   [AUTH] Token Exception: {e}")
+        print(f"   [授权异常] 获取 Token 失败: {e}")
         return None
 
 def fetch_arrival_count(date_str, icao):
     """
-    Fetch arrival count for a specific airport and date (00:00 - 24:00 UTC)
-    OpenSky uses UTC timestamps.
+    抓取特定日期、特定机场的航班抵达总数。
+    关键逻辑：OpenSky 接口接收 UTC 时间戳，脚本会将本地日期转换为该日 00:00 到 23:59 的 UTC 窗口。
     """
-    try:
-        token = get_oauth_token()
-        if not token:
-            print("   [ERROR] No valid token. Skipping fetch.")
-            return None
-            
-        # FORCE UTC TIMEZONE
-        # date_str is assumed to be YYYY-MM-DD
-        dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        begin = int(dt.timestamp())
-        end_dt = dt + timedelta(days=1)
-        end = int(end_dt.timestamp())
+    token = get_oauth_token()
+    if not token:
+        return None
         
-        # CLAMP TO NOW
-        # If the requested end time is in the future relative to system time, clamp it.
-        # This prevents requesting future data which might cause API to return 0/error.
+    try:
+        # 将日期字符串转换为对应的 UTC 时间戳起始和结束点
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        begin = int(dt.replace(tzinfo=timezone.utc).timestamp())
+        end = begin + 86400 # 覆盖全天 24 小时
+        
+        # 安全性逻辑：严禁查询未来数据，如果 end 时间超过当前系统时间，则截断至“现在”。
         now_ts = int(time.time())
         if end > now_ts:
-            # print(f"   [DEBUG_TIME] Clamping end {end} to now {now_ts}")
             end = now_ts
         
-        # If begin > now, we are asking for fully future data -> Return 0
+        # 如果起始时间就已经在未来，直接跳过抓取
         if begin > now_ts:
-             print(f"   [DEBUG] Date {date_str} is in the future. Skipping.")
+             print(f"   [跳过] 日期 {date_str} 处于未来，无有效数据。")
              return 0
 
-        # print(f"   [DEBUG_TIME] {date_str} -> {begin} to {end}")
-        
         params = {
             'airport': icao,
             'begin': begin,
@@ -122,79 +111,72 @@ def fetch_arrival_count(date_str, icao):
         resp = requests.get(
             BASE_URL, 
             params=params, 
-            headers=headers, # Use Bearer Token
+            headers=headers, 
             timeout=30
         )
         
         if resp.status_code == 200:
             flights = resp.json()
-            # DEBUG: Print first item to verify structure
+            # 记录成功抓取的航班采样，便于日志追踪
             if len(flights) > 0:
-                print(f"   [DEBUG] Fetched {len(flights)} flights for {icao}. Sample: {flights[0].get('callsign', 'N/A')}")
+                print(f"   [成功] 抓取到 {icao} 的 {len(flights)} 架次航班。采样: {flights[0].get('callsign', 'N/A')}")
             else:
-                print(f"   [DEBUG] Fetched 0 flights for {icao}.")
-                
+                print(f"   [提醒] {icao} 在 {date_str} 抓取结果为 0。")
             return len(flights)
-        elif resp.status_code == 404:
-            return 0 # No flights?
         elif resp.status_code == 429:
-            print("   [429] Rate Limit Exceeded. Waiting 60s...")
+            # 关键风控逻辑：如果触碰 429 频率限制，脚本将进入 60 秒硬强制休眠
+            print("   [警告] 触发 429 访问受限（频率/额度）。进入 60 秒强制冷却期...")
             time.sleep(60)
-            return None # Retry needed
-        elif resp.status_code == 403:
-            print("   [403] Forbidden. Check credits/scope.")
-            return None
+            return None # 标记为失败，由外层逻辑决定是否重试
         elif resp.status_code == 401:
-             print("   [401] Unauthorized. Token invalid?")
+             print("   [错误] 401 认证失效，Token 可能已过期。")
              return None
         else:
-            print(f"   Error fetching {icao} on {date_str}: {resp.status_code}")
+            print(f"   [错误] {icao} 在 {date_str} 抓取失败: {resp.status_code}")
             return None
             
     except Exception as e:
-        print(f"   Exception for {icao} on {date_str}: {e}")
+        print(f"   [异常] {icao} 在 {date_str} 抓取时发生故障: {e}")
         return None
 
 def save_to_db(data_list):
-    """
-    Save list of (date, airport, count) to DB
-    """
-    if not data_list:
-        return
-        
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    """批量持久化航班数据到 SQLite 数据库 flight_stats 表"""
+    if not data_list: return
     
     try:
-        cursor.executemany('''
+        conn = sqlite3.connect(DB_PATH)
+        # INSERT OR REPLACE 确保了如果重复运行脚本，数据会被最新修正的结果覆盖（如时区修正后的数据）
+        conn.executemany('''
             INSERT OR REPLACE INTO flight_stats (date, airport, arrival_count)
             VALUES (?, ?, ?)
         ''', data_list)
         conn.commit()
-        print(f"   Saved {len(data_list)} records to DB.")
+        print(f"   [数据库] 成功保存 {len(data_list)} 条记录。")
     except Exception as e:
-        print(f"   DB Error: {e}")
+        print(f"   [数据库错误] 写入失败: {e}")
     finally:
         conn.close()
 
+def get_db_connection():
+    """获取数据库连接"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
 def backfill(days_to_backfill=45):
     """
-    Check missing data for past X days and fill it.
+    数据回溯策略：分析历史缺口并进行自动填补。
     """
-    print(f"Checking data for the last {days_to_backfill} days...")
+    print(f"=== 启动历史数据回溯任务 (目标范围: 过去 {days_to_backfill} 天) ===")
     
-    # We want to check relative to 'now' but using local date definition for iterations is fine
-    # the fetch_arrival_count converts that date string to UTC window.
     today = datetime.now().date()
-    
     dates_to_check = []
-    # Check yesterday and before
     for i in range(1, days_to_backfill + 1):
         d = today - timedelta(days=i)
         dates_to_check.append(d.strftime("%Y-%m-%d"))
         
     conn = get_db_connection()
-    # Ensure table exists
+    # 若表结构不存在则创建（date, airport 构成联合主键）
     conn.execute('''
         CREATE TABLE IF NOT EXISTS flight_stats (
             date TEXT,
@@ -206,50 +188,47 @@ def backfill(days_to_backfill=45):
     existing = pd.read_sql("SELECT date, airport FROM flight_stats", conn)
     conn.close()
     
-    # Reset existing for the purpose of RE-FETCHING specific days if we think they are wrong?
-    # Actually, user wants to FIX the data.
-    # So we should probably force delete Jan 14 and Jan 15 from DB to force re-fetch?
-    # Or just rely on INSERT OR REPLACE.
-    # But logic below skips if present.
-    
     existing_set = set(zip(existing['date'], existing['airport']))
     
     tasks = []
     for d_str in dates_to_check:
-        # Force re-fetch for Jan 14 and Jan 15 since we know they are wrong/incomplete
+        # 特殊逻辑：1月14日和15日曾受旧版时区 Bug 影响（数据腰斩），必须强行重新下载
         is_suspect_date = (d_str == '2026-01-14' or d_str == '2026-01-15')
         
         for icao in AIRPORTS:
             if is_suspect_date or (d_str, icao) not in existing_set:
                 tasks.append((d_str, icao))
     
-    print(f"Found {len(tasks)} records to fetch/refetch.")
+    print(f"=== 待处理任务总数: {len(tasks)} ===")
     
-    # Process batch
     batch = []
     for i, (d_str, icao) in enumerate(tasks):
-        print(f"[{i+1}/{len(tasks)}] Fetching {icao} for {d_str}...")
+        print(f"进度: [{i+1}/{len(tasks)}] 正在请求 {icao} ({d_str})...")
         
         count = fetch_arrival_count(d_str, icao)
         
         if count is not None:
             batch.append((d_str, icao, count))
         
-        # Save every 10 or if last
+        # 批量保存以提升 IO 性能（每 10 次请求执行一次 Commit）
         if len(batch) >= 10:
             save_to_db(batch)
             batch = []
             
+        # 必要的礼貌延迟，防止极速请求导致的 429 封禁
         time.sleep(0.5)
         
     if batch:
         save_to_db(batch)
         
-    print("Backfill complete.")
+    print("=== 历史回溯任务结束 ===")
 
 if __name__ == "__main__":
-    days = 60
+    # 支持命令行参数执行。如: python fetch_opensky.py 60 代表补全过去 60 天。
+    days = 45 
     if len(sys.argv) > 1:
-        days = int(sys.argv[1])
+        try:
+            days = int(sys.argv[1])
+        except: pass
         
     backfill(days)
