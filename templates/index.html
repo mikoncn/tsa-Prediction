@@ -50,9 +50,35 @@
                 <h3>前日客流 (<span id="prevDate">-</span>)</h3>
                 <div class="value" id="prevPassengers" style="font-size: 1.5em; font-weight: bold; color: #6c757d;">-</div>
             </div>
-            <div class="stat-card" style="opacity: 0.6; border: 1px dashed #ccc;">
-                <h3>预测客流 (下个交易日)</h3>
-                <div class="value" id="predPassengers" style="font-size: 1.5em; font-weight: bold; color: #28a745;">等待模型接入...</div>
+            <div class="stat-card" style="border: 2px solid #28a745; background: #f0fff4; min-width: 250px;">
+                <h3>
+                    预测客流 
+                    <select id="predDateSelect" style="font-size: 0.8em; padding: 2px; margin-left: 5px; border-radius: 4px; border: 1px solid #ccc;">
+                        <option value="">Loading...</option>
+                    </select>
+                </h3>
+                <div class="value" id="predPassengers" style="font-size: 1.5em; font-weight: bold; color: #28a745;">Loading...</div>
+            </div>
+        </div>
+
+        <!-- 预测回测表格 -->
+        <div class="review-panel" style="margin-top: 40px;">
+            <h2 style="border-left: 5px solid #28a745; padding-left: 10px;">🛡️ 模型实战回测 (Model Accuracy Review)</h2>
+            <div style="overflow-x: auto;">
+                <table id="accuracyTable" style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+                    <thead>
+                        <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                            <th style="padding: 12px; text-align: left;">日期</th>
+                            <th style="padding: 12px; text-align: right;">真实客流</th>
+                            <th style="padding: 12px; text-align: right;">AI 预测</th>
+                            <th style="padding: 12px; text-align: right;">误差 (人数)</th>
+                            <th style="padding: 12px; text-align: center;">准确度</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- JS 填充 -->
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>

@@ -29,40 +29,54 @@ def main():
     print("1.5 生成基础节日特征 (US Holidays)...")
     import holidays
     
-    # 辅助函数: 优先级判定
-    def get_holiday_priority(name):
-        name_lower = name.lower()
-        if any(k in name_lower for k in ["thanksgiving", "christmas"]):
-            return 100, 7 # Tier 1: ±7d
-        if any(k in name_lower for k in ["new year", "memorial", "independence", "labor", "martin luther king"]):
-            return 80, 3  # Tier 2: ±3d
-        return 50, 1      # Tier 3: ±1d
-
-    # 生成 2018-2028 的节日数据
+    # [NEW] Advanced Holiday Logic (Refined)
     us_holidays = holidays.US(years=range(2018, 2029))
-    holiday_events = {}
+    
+    # 1. Exact Day List (The "Stay at Home" days)
+    major_holidays = ['Christmas Day', 'Thanksgiving', 'Independence Day']
+    
+    # 临时存储 expanded events
+    expanded_events = [] 
     
     for date, name in us_holidays.items():
-        priority, window = get_holiday_priority(name)
-        for offset in range(-window, window + 1):
-            target_date = date + datetime.timedelta(days=offset)
-            current_prio = priority + 1 if offset == 0 else priority
-            
-            # 命名规则
-            if offset == 0: event_name = name
-            elif offset < 0: event_name = f"Pre-{name} ({abs(offset)}d)"
-            else: event_name = f"Post-{name} ({offset}d)"
-            
-            # 冲突解决
-            if target_date in holiday_events:
-                if current_prio > holiday_events[target_date][0]:
-                    holiday_events[target_date] = (current_prio, event_name)
-            else:
-                holiday_events[target_date] = (current_prio, event_name)
+        date_obj = pd.Timestamp(date)
+        
+        # Check if it's a Major Holiday
+        is_major = any(m in name for m in major_holidays)
+        
+        # 1. Mark Exact Day (Original Holiday)
+        expanded_events.append({
+            'date': date_obj,
+            'is_holiday': 1,
+            'is_holiday_exact_day': 1 if is_major else 0, # Only major ones get the "penalty" flag
+            'is_holiday_travel_window': 0, 
+            'holiday_name': name
+        })
+        
+        # 2. Generate Window (Only for Major Holidays)
+        if is_major:
+            for offset in range(-7, 8):
+                if offset == 0: continue # Skip exact day
+                window_date = date_obj + pd.Timedelta(days=offset)
                 
-    # 转为 DataFrame
-    h_data = [{'date': pd.Timestamp(d), 'is_holiday': 1, 'holiday_name': n} for d, (p, n) in holiday_events.items()]
-    df_holiday = pd.DataFrame(h_data)
+                expanded_events.append({
+                    'date': window_date,
+                    'is_holiday': 0, # Window itself is not a legal holiday (unless overlap)
+                    'is_holiday_exact_day': 0,
+                    'is_holiday_travel_window': 1,
+                    'holiday_name': f"Travel Window ({name})"
+                })
+
+    # Convert to DataFrame
+    df_h_temp = pd.DataFrame(expanded_events)
+    
+    # Aggregation rules: Take MAX for flags to handle overlaps
+    df_holiday = df_h_temp.groupby('date').agg({
+        'is_holiday': 'max',
+        'is_holiday_exact_day': 'max',
+        'is_holiday_travel_window': 'max',
+        'holiday_name': lambda x: ', '.join(set([str(v) for v in x])) # Join names
+    }).reset_index()
 
     try:
         df_weather = pd.read_csv(WEATHER_CSV)
@@ -94,6 +108,10 @@ def main():
     df_full['weather_index'] = df_full['weather_index'].fillna(0).astype(int)
     # 填充 is_holiday (NaN -> 0), holiday_name (NaN -> '')
     df_full['is_holiday'] = df_full['is_holiday'].fillna(0).astype(int)
+    df_full['holiday_name'] = df_full['holiday_name'].fillna('')
+    # [NEW] Fill Advanced Holiday Features
+    df_full['is_holiday_exact_day'] = df_full['is_holiday_exact_day'].fillna(0).astype(int)
+    df_full['is_holiday_travel_window'] = df_full['is_holiday_travel_window'].fillna(0).astype(int)
     df_full['holiday_name'] = df_full['holiday_name'].fillna('')
     
     # 5. 注入复活节补丁 (Easter Patch)
@@ -169,7 +187,8 @@ def main():
     # 8. 存入数据库
     print("7. 存入数据库表 traffic_full ...")
     # 清理临时列
-    cols_to_keep = ['date', 'throughput', 'weather_index', 'is_holiday', 'holiday_name', 'is_spring_break', 'throughput_lag_7']
+    # 清理临时列
+    cols_to_keep = ['date', 'throughput', 'weather_index', 'is_holiday', 'holiday_name', 'is_holiday_exact_day', 'is_holiday_travel_window', 'is_spring_break', 'throughput_lag_7']
     final_df = df_full[cols_to_keep].copy()
     
     # 转换 date 为 string 存入 sqlite
@@ -191,9 +210,11 @@ def main():
     print(future_row.to_string(index=False))
     
     # 验证 2022-12-22 (核弹)
+    # [Validation Update] Show new cols
+    cols_val = ['date', 'throughput', 'is_holiday', 'is_holiday_exact_day', 'is_holiday_travel_window', 'holiday_name']
     bomb_row = final_df[final_df['date'] == '2022-12-22']
     print("\n[Check Bomb Cyclone 2022-12-22]:")
-    print(bomb_row.to_string(index=False))
+    print(bomb_row[cols_val].to_string(index=False))
     
     # 验证 复活节优先级 (2024-03-31 Easter Sunday)
     easter_row = final_df[final_df['date'] == '2024-03-31']

@@ -150,12 +150,108 @@ async function loadData() {
         // 默认显示全部
         applyFilters(); 
         
+        // [NEW] 加载预测数据
+        fetchPredictions();
+        
     } catch (error) {
         console.error('Error loading data:', error);
         alert('加载数据失败，请检查后端服务是否启动。');
     }
 }
 
+// [NEW] 获取并显示预测数据
+let forecastDataMap = {}; // Cache forecast data
+
+async function fetchPredictions() {
+    try {
+        const response = await fetch('/api/predictions');
+        const data = await response.json();
+        
+        // 1. 显示未来预测 (Populate Dropdown)
+        const select = document.getElementById('predDateSelect');
+        select.innerHTML = ''; // Clear
+        
+        if (data.forecast && data.forecast.length > 0) {
+            forecastDataMap = {}; // Reset cache
+            
+            data.forecast.forEach((item, index) => {
+                const opt = document.createElement('option');
+                opt.value = item.ds;
+                // Display format: "01-14 (Wed)"
+                const d = new Date(item.ds);
+                const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+                opt.text = `${item.ds.slice(5)} (${dayName})`;
+                select.add(opt);
+                
+                forecastDataMap[item.ds] = item.predicted_throughput;
+            });
+            
+            // Trigger first update
+            select.selectedIndex = 0;
+            updatePredictionDisplay(select.value);
+            
+            // Add listener
+            select.onchange = function() {
+                updatePredictionDisplay(this.value);
+            };
+
+        } else {
+            const opt = document.createElement('option');
+            opt.text = "暂无数据";
+            select.add(opt);
+            document.getElementById('predPassengers').innerText = '-';
+        }
+
+        // 2. 填充回测准确率表格
+        if (data.validation && data.validation.length > 0) {
+            const tableBody = document.querySelector('#accuracyTable tbody');
+            tableBody.innerHTML = ''; // Clear existing
+            
+            // Limit to last 10 records for cleaner view
+            const recentValidation = data.validation.slice(-15).reverse(); // Reverse to show newest first
+            
+            recentValidation.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.style.borderBottom = '1px solid #eee';
+                
+                const errorRate = parseFloat(row.error_rate);
+                let badgeClass = '';
+                let badgeText = '✅ 优秀';
+                
+                if (errorRate > 8.0) {
+                    badgeText = '🔴 偏差大';
+                    tr.style.backgroundColor = '#fff5f5';
+                } else if (errorRate > 5.0) {
+                    badgeText = '⚠️ 一般';
+                    tr.style.backgroundColor = '#fffdf5';
+                }
+
+                tr.innerHTML = `
+                    <td style="padding: 10px;">${row.date}</td>
+                    <td style="padding: 10px; text-align: right;">${parseInt(row.actual).toLocaleString()}</td>
+                    <td style="padding: 10px; text-align: right; font-weight: bold; color: #007bff;">${parseInt(row.predicted).toLocaleString()}</td>
+                    <td style="padding: 10px; text-align: right;">${parseInt(row.difference).toLocaleString()}</td>
+                    <td style="padding: 10px; text-align: center;">${errorRate.toFixed(2)}% <span style="font-size: 0.8em; margin-left: 5px;">${badgeText}</span></td>
+                `;
+                tableBody.appendChild(tr);
+            });
+        }
+
+    } catch (error) {
+        console.error('Error fetching predictions:', error);
+    }
+}
+
+function updatePredictionDisplay(date) {
+    if (forecastDataMap[date]) {
+        const val = forecastDataMap[date];
+        document.getElementById('predPassengers').innerText = (val / 1000000).toFixed(2) + 'M';
+    } else {
+        document.getElementById('predPassengers').innerText = '-';
+    }
+}
+
+// ... rest of code (year select, etc)
 // 填充年份选择框
 function populateYearSelect() {
     const yearSelect = document.getElementById('yearSelect');

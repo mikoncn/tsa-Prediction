@@ -6,115 +6,85 @@
 
 ---
 
-## 🏗️ 架构全景
+## 🏗️ 架构全景 (v2.0 Logic)
 
-系统采用 **ETL (Extract, Transform, Load)** 架构，数据流向清晰：
+系统采用 **ETL + 混合模型 (Hybrid Model)** 架构：
 
 ```mermaid
 graph LR
     A[TSA 官网] -->|Scraper| B(SQLite 主数据库)
     C[Open-Meteo 气象局] -->|API| D(气象特征表)
-    E[Holidays 库 + 算法] -->|Logic| F(节假日特征表)
+    E[Holidays 库] -->|Advanced Logic| F(节日特征: 正日/窗口)
     B --> G{Merge Engine}
     D --> G
     F --> G
-    G -->|Left Join| H[traffic_full 宽表]
-    H -->|API| I[Flask 后端]
-    I -->|JSON| J[前端交互看板]
+    G -->|Generate| H[TSA_Final_Analysis.csv]
+
+    H --> I[🔵 Prophet (趋势模型)]
+    H --> J[🔴 XGBoost (高精模型)]
+
+    J -->|Forecast| K[未来 7 日预测]
+    J -->|Validation| L[历史回测报告]
+
+    I & J --> M[Dashboard (Web)]
 ```
 
 ## 🧩 核心算法详解 (The Secret Sauce)
 
-这是本系统的核心竞争力所在。我们不只是简单的罗列数据，而是注入了深度业务逻辑。
+### 1. 节日双重逻辑 (Dual Holiday Feature)
 
-### 1. 多枢纽熔断气象模型 (Hub Meltdown Model)
+为了解决模型在节日当天的预测偏差，我们引入了高级特征：
 
-传统模型只看单一机场，无法理解全美航空网的**连锁反应**。我们设计了由 5 大枢纽（ATL, ORD, DFW, DEN, JFK）组成的熔断机制。
+- **Is_Holiday_Exact_Day (正日)**: 标记感恩节、圣诞节当天。模型学会了**"正日不出门"**的抑制逻辑（系数为负）。
+- **Is_Holiday_Travel_Window (窗口期)**: 标记节日前后 7 天。模型学会了**"节前大迁徙"**的激增逻辑（系数为正）。
 
-- **监测指标**: 积雪 (`Snowfall > 1.0cm`), 强风 (`Windspeed > 29.0km/h`), 暴雨 (`Rain > 20mm`).
-- **坏点判定 (Bad Hub)**: 单个机场若触发上述任一阈值，得 **3-5 分**，标记为坏点。
-- **系统熔断公式**:
-  $$ Final Score = \sum (Hub Scores) + Penalty $$
-  - **Penalty 规则**:
-    - 若 **2 个** 枢纽同时沦陷: **+10 分** (严重拥堵)
-    - 若 **3 个及以上** 枢纽沦陷: **+20 分** (系统熔断/Meltdown)
+### 2. 多枢纽熔断气象模型 (Hub Meltdown Model)
 
-> **实战案例**: 2022 年 12 月 22 日“炸弹气旋”期间，系统检测到 5 大枢纽全军覆没，基础分 16 分 + 熔断分 20 分 = **36 分**。模型准确识别出这是灾难级的一天。
-
-### 2. 复活节优先策略 (Easter Priority Patch)
-
-`holidays.US` 库天然缺失非联邦假日的复活节，但它是航空出行的绝对高峰。我们实施了**强注入逻辑**：
-
-- **计算**: 使用 `dateutil.easter` 动态计算每年复活节日期。
-- **窗口**:
-  - **Good Friday** (-2 天)
-  - **Holy Saturday** (-1 天) [新增]
-  - **Easter Sunday** (0 天)
-  - **Easter Monday** (+1 天)
-- **优先级**: 权重设为 Tier 2，直接写入 `is_holiday`，强制覆盖。
-
-### 3. 春假启发式算法 (Spring Break Heuristics)
-
-春假没有固定日期，但有规律可循。我们采用**排除法**定义春假，避免与确定的节日冲突：
-
-```python
-if (Month in [3, 4]) AND (Is_Weekend) AND (Not Holiday):
-    is_spring_break = 1
-else:
-    0
-```
-
-> **效果**: 既捕捉到了大学生春假带来的周末客流高峰，又不会干扰复活节等正日子的权重。
-
-### 4. 超级碗效应 (Super Bowl Algorithm)
-
-每年 2 月的重磅体育赛事，引发巨大的非典型迁徙。
-
-- **定位**: 每年 2 月的第 2 个星期日。
-- **窗口**: Super Bowl Sunday + Post-SB Monday (回流日)。
-- **动作**: 强制设为 Tier 2 节日，覆盖其他特征。
+监测 5 大枢纽（ATL, ORD, DFW, DEN, JFK）的暴雪、强风、暴雨。若 3 个以上枢纽同时恶劣天气，触发**"系统熔断"**信号。
 
 ---
 
 ## 🛠️ 项目结构
 
-- `build_tsa_db.py`: **爬虫**. 智能识别 TSA 页面结构，增量更新数据。
-- `get_weather_features.py`: **气象站**. 抓取历史存档及未来 15 天预报，计算熔断指数。
-- `add_features.py`: **日历**. 生成 Tier 1/2/3 分级联邦假日特征。
-- `merge_db.py`: **总装**. 基于全量时间轴 (Timeline Strategy) 生成 `traffic_full` 表。
-- `app.py` & `static/`: **看板**. 基于 Flask + Chart.js 的高性能交互式图表。
+- `update_data.bat`: **一键司令部**. 串联爬虫、天气、融合、训练全流程。
+- `merge_db.py`: **核心融合器**. 生成 Feature A/B，处理 Holiday/Weather/Lags。
+- `train_xgb.py`: **XGBoost 引擎**. 负责高精度预测 + 2025 全年回测。
+- `train_model.py`: **Prophet 引擎**. 负责长期趋势分析。
+- `app.py`: **Web 后端**.
+- `backtest_2025_full.py`: **压力测试**. 盲测 2025 全年数据。
+
+**已移除**: `add_features.py`, `export_table.py` (功能已集成至 Merge DB)。
 
 ## 🚀 快速开始
 
-1. **环境安装**:
+**日常更新 (Daily Routine)**:
 
-   ```bash
-   pip install flask pandas requests lxml holidays openmeteo-requests requests-cache retry-requests python-dateutil
-   ```
+只需双击运行：
 
-2. **数据管线跑通**:
+```bash
+./update_data.bat
+```
 
-   ```bash
-   python build_tsa_db.py        # 1. 抓客流
-   python add_features.py        # 2. 算假日
-   python get_weather_features.py # 3. 算天气
-   python merge_db.py            # 4. 合并宽表
-   ```
+它会自动：
 
-3. **启动看板**:
-   ```bash
-   python app.py
-   # 访问 http://127.0.0.1:5000
-   ```
+1. 抓取最新 TSA 数据
+2. 更新天气
+3. 重训模型
+4. 生成未来 7 天预测 (`xgb_forecast.csv`)
 
-## 🔮 未来路线图 (Roadmap)
+**启动看板**:
 
-为了进一步逼近 99.9% 的预测精度，我们在下一阶段将关注以下“隐形大 BOSS”：
+```bash
+python app.py
+# 访问 http://127.0.0.1:5000
+```
 
-- [ ] **超级碗 (Super Bowl)**: 2 月最强单向客流事件。
-- [ ] **母亲节 (Mother's Day)**: 5 月全家出行高峰。
-- [ ] **开学季 (Back to School)**: 8 月持续性客流爬坡。
-- [ ] **模型接入**: 正式引入 Prophet 或 XGBoost 消耗 `traffic_full` 数据。
+## 🔮 路线图 (Roadmap)
+
+- [x] **超级碗 (Super Bowl)**: 算法已实装。
+- [x] **模型接入**: Prophet + XGBoost 双核驱动。
+- [x] **节日逻辑升级**: 正日 vs 窗口期分离。
+- [x] **前端升级**: 支持自由日期选择 & 准确率回测面板。
 
 ---
 

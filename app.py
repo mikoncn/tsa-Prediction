@@ -48,6 +48,28 @@ def get_data():
         data.append(item)
         
     return jsonify(data)
+@app.route('/api/predictions')
+def get_predictions():
+    result = {}
+    
+    # 1. Load Future Forecast
+    try:
+        df_forecast = pd.read_csv("xgb_forecast.csv")
+        result['forecast'] = df_forecast.to_dict(orient='records')
+    except Exception as e:
+        result['forecast'] = []
+        print(f"Error loading forecast: {e}")
+
+    # 2. Load Historical Validation
+    try:
+        df_validation = pd.read_csv("xgb_validation.csv")
+        # Keep only recent days or specific logic if needed
+        result['validation'] = df_validation.to_dict(orient='records')
+    except Exception as e:
+        result['validation'] = []
+        print(f"Error loading validation: {e}")
+        
+    return jsonify(result)
 
 if __name__ == '__main__':
     app.run(debug=True)

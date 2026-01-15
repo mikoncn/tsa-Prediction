@@ -30,6 +30,14 @@ if %errorlevel% neq 0 (
 )
 
 echo.
+echo [4/5] Training Prophet Model (Trend Analysis)...
+python train_model.py
+
+echo.
+echo [5/5] Training XGBoost Model (Precision Forecast)...
+python train_xgb.py
+
+echo.
 echo ==========================================
 echo        All Data Updated Successfully!
 echo ==========================================
