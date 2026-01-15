@@ -16,29 +16,36 @@ function initChart() {
                 borderWidth: 2,
                 fill: true,
                 tension: 0.3,
-                
-                // 动态点样式 (Weather)
                 pointBackgroundColor: function(context) {
                     const idx = context.dataIndex;
                     const item = context.dataset.data[idx];
-                    if (!item || item.y === null) return 'transparent'; // Future/Null points invisible
-                    
+                    if (!item || item.y === null) return 'transparent';
                     const w = item.weather_index;
-                    if (w >= 30) return '#dc3545'; // Red (Meltdown)
-                    if (w >= 15) return '#fd7e14'; // Orange (Severe)
-                    return '#007bff'; // Blue (Normal)
+                    if (w >= 30) return '#dc3545';
+                    if (w >= 15) return '#fd7e14';
+                    return '#007bff';
                 },
                 pointRadius: function(context) {
                     const idx = context.dataIndex;
                     const item = context.dataset.data[idx];
                     if (!item || item.y === null) return 0;
-                    
                     const w = item.weather_index;
-                    if (w >= 30) return 6; // Big dot for meltdown
+                    if (w >= 30) return 6;
                     if (w >= 15) return 4;
                     return 2;
                 },
                 pointHoverRadius: 8
+            }, {
+                label: 'AI 预测',
+                data: [],
+                borderColor: '#fd7e14',
+                backgroundColor: 'rgba(253, 126, 20, 0.1)',
+                borderWidth: 2,
+                borderDash: [5, 5],
+                pointRadius: 4,
+                pointBackgroundColor: '#fd7e14',
+                fill: false,
+                tension: 0.3
             }]
         },
         options: {
@@ -52,9 +59,10 @@ function initChart() {
                 const points = chart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, true);
                 if (points.length) {
                     const firstPoint = points[0];
-                    const item = chart.data.datasets[firstPoint.datasetIndex].data[firstPoint.index];
-                    if(item.y !== null) {
-                        alert(`日期: ${item.x}\n客流: ${item.y}\n气象指数: ${item.weather_index}\n节日: ${item.holiday_name || '无'}`);
+                    const dataset = chart.data.datasets[firstPoint.datasetIndex];
+                    const item = dataset.data[firstPoint.index];
+                    if(item && item.y !== null) {
+                        alert(`日期: ${item.x}\n客流: ${item.y}\n气象指数: ${item.weather_index || 0}\n节日: ${item.holiday_name || '无'}`);
                     }
                 }
             },
@@ -62,12 +70,19 @@ function initChart() {
                 x: {
                     type: 'time',
                     time: {
-                        unit: 'month',
                         displayFormats: {
-                            month: 'yyyy年MM月',
-                            day: 'MM-dd (EEE)'
+                            day: 'MM-dd',
+                            week: 'MM-dd',
+                            month: 'yyyy-MM'
                         },
                         tooltipFormat: 'yyyy-MM-dd'
+                    },
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 0,
+                        autoSkip: true,
+                        autoSkipPadding: 15,
+                        font: { size: 10 }
                     },
                     title: { display: true, text: '日期' }
                 },
@@ -92,8 +107,7 @@ function initChart() {
                         label: function(context) {
                             const item = context.raw;
                             if (item.y === null) return ' 预测中...';
-                            let label = ' 旅客: ' + new Intl.NumberFormat().format(item.y);
-                            return label;
+                            return ' ' + context.dataset.label + ': ' + new Intl.NumberFormat().format(item.y);
                         },
                         afterLabel: function(context) {
                             const item = context.raw;
@@ -112,12 +126,11 @@ function initChart() {
                     }
                 },
                 annotation: {
-                    annotations: {} // 动态填充
+                    annotations: {}
                 },
                 zoom: {
                     pan: { enabled: true, mode: 'x' },
-                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
-                    limits: { x: {min: 'original', max: 'original'} }
+                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
                 }
             }
         }
@@ -130,16 +143,14 @@ async function loadData() {
         const response = await fetch('/api/data');
         const data = await response.json();
         
-        // 转换数据格式 (保留特征字段)
         allData = data.map(item => ({
             x: item.date,
-            y: item.throughput, // Note: this can be null for future
+            y: item.throughput,
             weather_index: item.weather_index || 0,
             is_holiday: item.is_holiday || 0,
             holiday_name: item.holiday_name || ''
         }));
 
-        // 提取年份
         availableYears.clear();
         allData.forEach(item => {
             const year = item.x.split('-')[0];
@@ -147,75 +158,66 @@ async function loadData() {
         });
         populateYearSelect();
 
-        // 默认显示全部
-        applyFilters(); 
-        
-        // [NEW] 加载预测数据
+        updateZoomLimits();
+        setQuickRange(30);
         fetchPredictions();
         
     } catch (error) {
         console.error('Error loading data:', error);
-        alert('加载数据失败，请检查后端服务是否启动。');
+        alert('加载数据失败，请检查后端服务');
     }
 }
 
-// [NEW] 获取并显示预测数据
-let forecastDataMap = {}; // Cache forecast data
+let forecastDataMap = {};
 
 async function fetchPredictions() {
     try {
         const response = await fetch('/api/predictions');
         const data = await response.json();
         
-        // 1. 显示未来预测 (Populate Dropdown)
-        const select = document.getElementById('predDateSelect');
-        select.innerHTML = ''; // Clear
-        
         if (data.forecast && data.forecast.length > 0) {
-            forecastDataMap = {}; // Reset cache
+            const forecastPoints = data.forecast.map(item => ({
+                x: item.ds,
+                y: item.predicted_throughput
+            }));
             
-            data.forecast.forEach((item, index) => {
+            chart.data.datasets[1].data = forecastPoints;
+            chart.update();
+
+            const select = document.getElementById('predDateSelect');
+            select.innerHTML = '';
+            forecastDataMap = {};
+            
+            data.forecast.forEach((item) => {
                 const opt = document.createElement('option');
                 opt.value = item.ds;
-                // Display format: "01-14 (Wed)"
                 const d = new Date(item.ds);
                 const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
                 opt.text = `${item.ds.slice(5)} (${dayName})`;
                 select.add(opt);
-                
                 forecastDataMap[item.ds] = item.predicted_throughput;
             });
             
-            // Trigger first update
             select.selectedIndex = 0;
             updatePredictionDisplay(select.value);
-            
-            // Add listener
-            select.onchange = function() {
-                updatePredictionDisplay(this.value);
-            };
-
+            select.onchange = function() { updatePredictionDisplay(this.value); };
         } else {
-            const opt = document.createElement('option');
-            opt.text = "暂无数据";
-            select.add(opt);
+            chart.data.datasets[1].data = [];
+            chart.update();
             document.getElementById('predPassengers').innerText = '-';
         }
 
-        // 2. 填充回测准确率表格
         if (data.validation && data.validation.length > 0) {
             const tableBody = document.querySelector('#accuracyTable tbody');
-            tableBody.innerHTML = ''; // Clear existing
+            tableBody.innerHTML = '';
             
-            // Limit to last 10 records for cleaner view
-            const recentValidation = data.validation.slice(-15).reverse(); // Reverse to show newest first
+            const recentValidation = data.validation.reverse();
             
             recentValidation.forEach(row => {
                 const tr = document.createElement('tr');
                 tr.style.borderBottom = '1px solid #eee';
                 
                 const errorRate = parseFloat(row.error_rate);
-                let badgeClass = '';
                 let badgeText = '✅ 优秀';
                 
                 if (errorRate > 8.0) {
@@ -236,9 +238,33 @@ async function fetchPredictions() {
                 tableBody.appendChild(tr);
             });
         }
-
     } catch (error) {
         console.error('Error fetching predictions:', error);
+    }
+}
+
+async function runPrediction() {
+    const btn = document.getElementById('btnRunPred');
+    const originalText = btn.innerText;
+    
+    try {
+        btn.innerText = '⏳ 计算中...';
+        btn.disabled = true;
+        
+        const response = await fetch('/api/run_prediction', { method: 'POST' });
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            alert('✅ 预测完成！数据已更新。');
+            fetchPredictions();
+        } else {
+            alert('❌ 失败: ' + result.message);
+        }
+    } catch (e) {
+        alert('❌ 请求错误: ' + e);
+    } finally {
+        btn.innerText = originalText;
+        btn.disabled = false;
     }
 }
 
@@ -251,8 +277,6 @@ function updatePredictionDisplay(date) {
     }
 }
 
-// ... rest of code (year select, etc)
-// 填充年份选择框
 function populateYearSelect() {
     const yearSelect = document.getElementById('yearSelect');
     yearSelect.innerHTML = '<option value="all">全部年份</option>';
@@ -265,52 +289,62 @@ function populateYearSelect() {
     });
 }
 
-// 应用筛选
 function applyFilters() {
     const selectedYear = document.getElementById('yearSelect').value;
-    
     let filteredData = allData;
     
     if (selectedYear !== 'all') {
         filteredData = allData.filter(item => item.x.startsWith(selectedYear));
     }
-
-    updateChart(filteredData);
-    generateHolidayAnnotations(filteredData); 
-    updateStats(filteredData);
-}
-
-// 快捷范围筛选
-function setQuickRange(days) {
-    if (!allData || allData.length === 0) return;
-    
-    // 找最后一个有数据的日期
-    const validData = allData.filter(d => d.y !== null);
-    const lastDate = new Date(validData[validData.length - 1].x);
-    
-    // 计算起始日期
-    const startDate = new Date(lastDate);
-    startDate.setDate(lastDate.getDate() - days);
-    
-    const startStr = startDate.toISOString().split('T')[0];
-    
-    const filteredData = allData.filter(d => d.x >= startStr);
-    
-    // Reset select to 'all' visually to avoid confusion, or handle nicely
-    document.getElementById('yearSelect').value = 'all';
     
     updateChart(filteredData);
     generateHolidayAnnotations(filteredData);
     updateStats(filteredData);
 }
 
-// 更新图表数据
+function setQuickRange(days) {
+    if (!allData || allData.length === 0) return;
+    
+    updateChart(allData);
+    
+    const validData = allData.filter(d => d.y !== null);
+    const lastDateObj = new Date(validData[validData.length - 1].x);
+    
+    const startDateObj = new Date(lastDateObj);
+    startDateObj.setDate(lastDateObj.getDate() - days);
+    
+    const minTime = startDateObj.getTime();
+    const maxTime = lastDateObj.getTime();
+    
+    chart.options.scales.x.min = minTime;
+    chart.options.scales.x.max = maxTime;
+    
+    document.getElementById('yearSelect').value = 'all';
+    chart.update();
+    
+    generateHolidayAnnotations(allData);
+    updateStats(allData);
+}
+
 function updateChart(data) {
     chart.data.datasets[0].data = data;
     chart.update();
 }
 
-// 生成节假日 Annotations
+function updateZoomLimits() {
+    if (!allData || allData.length === 0) return;
+    
+    const dates = allData.map(d => new Date(d.x).getTime());
+    const minDate = Math.min(...dates);
+    const maxDate = Math.max(...dates);
+    const buffer = 7 * 24 * 60 * 60 * 1000;
+    
+    chart.options.plugins.zoom.limits = {
+        x: { min: minDate, max: maxDate + buffer }
+    };
+    chart.update();
+}
+
 function generateHolidayAnnotations(data) {
     const annotations = {};
     let inHoliday = false;
@@ -359,27 +393,22 @@ function generateHolidayAnnotations(data) {
     }
     
     chart.options.plugins.annotation.annotations = annotations;
-    chart.update(); 
+    chart.update();
 }
 
-// 更新统计信息
 function updateStats(data) {
-    // 1. 找到最后一个"实际"有数据的点 (y !== null)
     const validData = data.filter(item => item.y !== null);
-
+    
     if (validData.length === 0) {
         document.getElementById('latestPassengers').innerText = '-';
         document.getElementById('prevPassengers').innerText = '-';
-        document.getElementById('predPassengers').innerText = '数据不足';
         return;
     }
-
-    // 2. 获取最新一天 (Latest)
+    
     const latest = validData[validData.length - 1];
     document.getElementById('latestPassengers').innerText = (latest.y / 1000000).toFixed(2) + 'M';
     document.getElementById('latestDate').innerText = latest.x;
 
-    // 3. 获取前一天 (Previous)
     if (validData.length >= 2) {
         const prev = validData[validData.length - 2];
         document.getElementById('prevPassengers').innerText = (prev.y / 1000000).toFixed(2) + 'M';
@@ -388,11 +417,6 @@ function updateStats(data) {
         document.getElementById('prevPassengers').innerText = '-';
         document.getElementById('prevDate').innerText = '';
     }
-
-    // 4. 预测客流 (Predicted) - 占位符
-    // 未来如果模型接入，这里可以读取 validData 之后的第一个点(如果后端给了预测值)
-    // 目前保持"占位"状态
-    document.getElementById('predPassengers').innerText = 'Waiting for Model...';
 }
 
 document.getElementById('yearSelect').addEventListener('change', applyFilters);

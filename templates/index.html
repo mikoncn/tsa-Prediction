@@ -26,6 +26,8 @@
             <button onclick="setQuickRange(30)">最近30天</button>
             
             <div class="divider"></div>
+            
+            <button id="btnRunPred" onclick="runPrediction()" style="background-color: #28a745; color: white;">🚀 立即预测</button>
 
             <!-- 年份筛选 -->
             <select id="yearSelect">
@@ -64,10 +66,10 @@
         <!-- 预测回测表格 -->
         <div class="review-panel" style="margin-top: 40px;">
             <h2 style="border-left: 5px solid #28a745; padding-left: 10px;">🛡️ 模型实战回测 (Model Accuracy Review)</h2>
-            <div style="overflow-x: auto;">
+            <div style="overflow-x: auto; max-height: 500px; overflow-y: auto; border: 1px solid #dee2e6;">
                 <table id="accuracyTable" style="width: 100%; border-collapse: collapse; margin-top: 15px;">
                     <thead>
-                        <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                        <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6; position: sticky; top: 0; z-index: 1;">
                             <th style="padding: 12px; text-align: left;">日期</th>
                             <th style="padding: 12px; text-align: right;">真实客流</th>
                             <th style="padding: 12px; text-align: right;">AI 预测</th>

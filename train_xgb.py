@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import holidays
+import os
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_percentage_error
 import warnings
@@ -158,12 +159,31 @@ print("Report saved to xgb_report.txt")
 # ==========================================
 # 7. 部署模式: 预测未来 5 天 (Production Forecast)
 # ==========================================
-print("\n🔮 Generating Future Forecast (Next 5 Days)...")
+print("\n[FORECAST] Generating Future Forecast (Next 5 Days)...")
 
 # ==========================================
-# 7. 部署模式: 预测未来 7 天 (Production Forecast)
-# ==========================================
-print("\n🔮 Generating Future Forecast (Next 7 Days)...")
+print("\n[FORECAST] Generating Future Forecast (Next 7 Days)...")
+
+# [CRITICAL UPDATE] Retrain on FULL DATA (Including Jan 2026)
+# 为了预测明天，我们需要利用直到昨天的最新数据，而不是停留在 2025 年底
+print("   [RETRAIN] Retraining model on ALL available history (2019-Present)...")
+mask_full_train = (~mask_pandemic) & (df_model['y'].notnull())
+full_train_df = df_model[mask_full_train]
+
+X_full = full_train_df[features]
+y_full = full_train_df['y']
+
+model_full = XGBRegressor(
+    n_estimators=1200, # Slightly more robust
+    learning_rate=0.05,
+    max_depth=5,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    n_jobs=-1,
+    random_state=42
+)
+model_full.fit(X_full, y_full)
+print(f"   Full Model Trained on {len(full_train_df)} rows.")
 
 # 关键修正: 找到最后一条"真实有数据"的日期 (忽略未来骨架)
 last_actual_row = df[df['y'].notnull()].iloc[-1]
@@ -175,6 +195,8 @@ future_dates = pd.date_range(start=last_actual_date + pd.Timedelta(days=1), peri
 
 # 构建未来特征 DataFrame
 future_df = pd.DataFrame({'ds': future_dates})
+
+# ... (Feature Engineering continues)
 
 # A. 时间特征
 future_df['day_of_week'] = future_df['ds'].dt.dayofweek
@@ -236,12 +258,35 @@ future_df['is_spring_break'] = 0
 
 # E. 预测
 X_future = future_df[features]
-y_future_pred = model.predict(X_future)
+y_future_pred = model_full.predict(X_future)
 
 future_df['predicted_throughput'] = y_future_pred.astype(int)
 
 # 保存预测结果
 future_df[['ds', 'predicted_throughput']].to_csv("xgb_forecast.csv", index=False)
 
-print("\n📅 Future Forecast:")
+print("\n[FORECAST RESULTS] Future Forecast:")
 print(future_df[['ds', 'predicted_throughput']].to_string(index=False))
+
+# [NEW] Save to Persistent History Log (For Rolling Verification)
+history_file = "prediction_history.csv"
+today = pd.Timestamp.now().strftime('%Y-%m-%d')
+
+# Prepare new rows
+new_log = future_df[['ds', 'predicted_throughput']].copy()
+new_log.columns = ['target_date', 'predicted_throughput']
+new_log['model_run_date'] = today
+
+if os.path.exists(history_file):
+    try:
+        history_df = pd.read_csv(history_file)
+        # Remove existing entries for same forecast produced today (to avoid duplicates if run multiple times)
+        history_df = history_df[~((history_df['target_date'].isin(new_log['target_date'])) & (history_df['model_run_date'] == today))]
+        final_history = pd.concat([history_df, new_log], ignore_index=True)
+    except:
+        final_history = new_log
+else:
+    final_history = new_log
+
+final_history.to_csv(history_file, index=False)
+print(f"Forecast logged to {history_file} for future verification.")
