@@ -289,8 +289,8 @@ future_df[['ds', 'predicted_throughput']].to_csv("xgb_forecast.csv", index=False
 print("\n[FORECAST RESULTS] Future Forecast:")
 print(future_df[['ds', 'predicted_throughput']].to_string(index=False))
 
-# [NEW] Save to Persistent History Log (For Rolling Verification)
-history_file = "prediction_history.csv"
+# [NEW] Save to Persistent History Log (SQLite)
+history_db = "tsa_data.db"
 today = pd.Timestamp.now().strftime('%Y-%m-%d')
 
 # Prepare new rows
@@ -298,16 +298,50 @@ new_log = future_df[['ds', 'predicted_throughput']].copy()
 new_log.columns = ['target_date', 'predicted_throughput']
 new_log['model_run_date'] = today
 
-if os.path.exists(history_file):
-    try:
-        history_df = pd.read_csv(history_file)
-        # Remove existing entries for same forecast produced today (to avoid duplicates if run multiple times)
-        history_df = history_df[~((history_df['target_date'].isin(new_log['target_date'])) & (history_df['model_run_date'] == today))]
-        final_history = pd.concat([history_df, new_log], ignore_index=True)
-    except:
-        final_history = new_log
-else:
-    final_history = new_log
+# [FIX] Ensure date columns are strings
+new_log['target_date'] = new_log['target_date'].dt.strftime('%Y-%m-%d')
+new_log['model_run_date'] = str(today)
 
-final_history.to_csv(history_file, index=False)
-print(f"Forecast logged to {history_file} for future verification.")
+try:
+    import sqlite3
+    conn = sqlite3.connect(history_db)
+    cursor = conn.cursor()
+    
+    # 1. Remove existing entries for same forecast produced today/future to avoid duplicates
+    # Strategy: Delete any existing prediction for this target_date made on this model_run_date
+    # Or just simple insert? Let's do simple insert for log, app.py will filter latest.
+    
+    # Actually, to prevent exploding table size during debugging, let's delete if exists same run
+    dt_list = new_log['target_date'].tolist()
+    cursor.executemany("DELETE FROM prediction_history WHERE target_date = ? AND model_run_date = ?", 
+                       [(d, today) for d in dt_list])
+    
+    # [FIX] Foolproof type conversion
+    records = []
+    for _, row in new_log.iterrows():
+        records.append({
+            'target_date': str(row['target_date']),
+            'predicted_throughput': int(row['predicted_throughput']),
+            'model_run_date': str(row['model_run_date'])
+        })
+    
+    cursor.executemany('''
+        INSERT INTO prediction_history (target_date, predicted_throughput, model_run_date)
+        VALUES (:target_date, :predicted_throughput, :model_run_date)
+    ''', records)
+    
+    conn.commit()
+    conn.close()
+    print(f"Forecast logged to {history_db} (table: prediction_history) for future verification.")
+    
+except Exception as e:
+    print(f"ERROR logging to database: {e}")
+    # Fallback to CSV if DB fails?
+    try:
+        if not os.path.exists("prediction_history.csv"):
+            new_log.to_csv("prediction_history.csv", index=False)
+        else:
+            new_log.to_csv("prediction_history.csv", mode='a', header=False, index=False)
+        print("Fallback: Logged to CSV.")
+    except:
+        pass

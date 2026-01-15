@@ -67,29 +67,33 @@ def get_predictions():
 
     # 2. 加载历史预测记录并与真实流量合并 (用于模型回测表格)
     try:
-        # print(f"DEBUG: CWD = {os.getcwd()}") # Removed debug print
-        if os.path.exists("prediction_history.csv"):
-            # print("DEBUG: History file found.") # Removed debug print
-            df_hist = pd.read_csv("prediction_history.csv")
-            df_actual = pd.read_csv("TSA_Final_Analysis.csv")
-            
-            # print(f"DEBUG: Hist Len={len(df_hist)}, Actual Len={len(df_actual)}") # Removed debug print
-            
+        # [MIGRATION] Read from SQLite instead of CSV
+        conn = sqlite3.connect('tsa_data.db')
+        conn.row_factory = sqlite3.Row
+        
+        # Query History
+        query_hist = "SELECT target_date, predicted_throughput, model_run_date FROM prediction_history"
+        df_hist = pd.read_sql(query_hist, conn)
+        
+        # Query Actuals (Read from traffic table or use CSV? CSV is exported by merge_db, let's use traffic table for purity or CSV for consistency)
+        # Using CSV for 'actuals' is fine as it's the analysis file, but ideally we move all to DB. 
+        # For now, let's keep reading actuals from CSV to minimize risk, or read from traffic_full if available.
+        # Let's stick to TSA_Final_Analysis.csv for actuals as it has valid structure.
+        df_actual = pd.read_csv("TSA_Final_Analysis.csv")
+        
+        conn.close()
+        
+        if not df_hist.empty:
             # Merge Actuals into History
-            # df_hist: target_date, predicted_throughput, model_run_date
-            # df_actual: date, throughput
-            
             # Ensure dates are strings YYYY-MM-DD
-            # [FIX] Handle mixed formats (YYYY-MM-DD vs YYYY-MM-DD HH:MM:SS)
             try:
-                df_hist['target_date'] = pd.to_datetime(df_hist['target_date'], format='mixed').dt.strftime('%Y-%m-%d')
+                df_hist['target_date'] = pd.to_datetime(df_hist['target_date']).dt.strftime('%Y-%m-%d')
                 df_actual['date'] = pd.to_datetime(df_actual['date']).dt.strftime('%Y-%m-%d')
             except Exception as e:
                 print(f"ERROR: Date conversion failed: {e}")
                 raise e
 
             merged = pd.merge(df_hist, df_actual, left_on='target_date', right_on='date', how='inner')
-            # print(f"DEBUG: Merged Len={len(merged)}") # Removed debug print
             
             # Logic: For each target_date, find the prediction made 1 day before (or latest available)
             # Simple approach: Sort by model_run_date desc, drop duplicates on target_date
