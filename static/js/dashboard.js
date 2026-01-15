@@ -490,3 +490,50 @@ async function updateData() {
         btn.style.backgroundColor = '#17a2b8';
     }
 }
+
+// 狙击模型调用
+async function runSniperModel() {
+    const btn = document.getElementById('btnRunSniper');
+    const originalText = btn.innerText;
+    
+    try {
+        btn.disabled = true;
+        btn.innerText = '🎯 锁定中...';
+        btn.style.backgroundColor = '#a71d2a';
+        
+        const response = await fetch('/api/predict_sniper', { method: 'POST' });
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            const data = result.data;
+            const modal = document.getElementById('sniperModal');
+            
+            // Populate Modal
+            document.getElementById('sniperDate').innerText = data.date;
+            document.getElementById('sniperValue').innerText = (data.predicted_throughput / 1000000).toFixed(2) + 'M';
+            document.getElementById('sniperFlights').innerText = data.flight_volume.toLocaleString();
+            
+            const badge = document.getElementById('sniperBadge');
+            if (data.is_fallback) {
+                badge.style.backgroundColor = '#ffc107';
+                badge.style.color = '#000';
+                badge.innerText = '⚠️ 降级模式 (Fallback)';
+            } else {
+                badge.style.backgroundColor = '#28a745';
+                badge.style.color = '#fff';
+                badge.innerText = '✅ 实时同步 (High Precision)';
+            }
+            
+            // Show
+            modal.style.display = 'flex';
+        } else {
+            alert('❌ 狙击失败: ' + result.message);
+        }
+    } catch (e) {
+        alert('❌ 网络错误: ' + e);
+    } finally {
+        btn.disabled = false;
+        btn.innerText = originalText;
+        btn.style.backgroundColor = '#dc3545';
+    }
+}

@@ -29,6 +29,7 @@
             
             <button id="btnRunPred" onclick="runPrediction()" style="background-color: #28a745; color: white;">🚀 立即预测</button>
             <button id="btnUpdateData" onclick="updateData()" style="background-color: #17a2b8; color: white; margin-left: 10px;">🔄 更新数据</button>
+            <button id="btnRunSniper" onclick="runSniperModel()" style="background-color: #dc3545; color: white; margin-left: 10px; font-weight: bold;">🎯 智能狙击 (Smart Sniper)</button>
 
             <!-- 年份筛选 -->
             <select id="yearSelect">
@@ -42,6 +43,20 @@
             <canvas id="trafficChart"></canvas>
         </div>
         <p class="hint">🖱️ 提示：点击红点查看详情 | 滚轮缩放 | 拖拽平移</p>
+        
+        <!-- 狙击模型结果模态框 -->
+        <div id="sniperModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+            <div style="background: white; padding: 30px; border-radius: 8px; width: 400px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <h2 style="color: #dc3545;">🎯 狙击模型结果 (Sniper)</h2>
+                <div style="margin: 20px 0; border-bottom: 1px solid #eee; padding-bottom: 20px;">
+                    <p style="font-size: 1.1em; color: #666;">目标日期: <span id="sniperDate" style="font-weight: bold;">-</span></p>
+                    <h1 id="sniperValue" style="font-size: 2.5em; color: #007bff; margin: 10px 0;">-</h1>
+                    <p style="color: #666;">实时飞行量: <span id="sniperFlights" style="font-weight: bold;">-</span> 架次</p>
+                </div>
+                <div id="sniperBadge" style="background: #28a745; color: white; padding: 5px 10px; border-radius: 4px; display: inline-block; font-size: 0.9em;">✅ 实时同步 (High Precision)</div>
+                <button onclick="document.getElementById('sniperModal').style.display = 'none'" style="margin-top: 25px; padding: 10px 30px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">关闭</button>
+            </div>
+        </div>
 
         <!-- 统计面板 (IDs 必须与 dashboard.js 一致) -->
         <div class="stats-panel" style="display: flex; justify-content: space-around; margin-top: 20px; text-align: center;">

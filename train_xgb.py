@@ -14,6 +14,30 @@ df['ds'] = pd.to_datetime(df['date'])
 df['y'] = df['throughput']
 df = df.sort_values('ds').reset_index(drop=True)
 
+# [NEW] Load Flight Stats (OpenSky)
+try:
+    print("Loading Flight Stats from SQLite...")
+    import sqlite3
+    conn_flights = sqlite3.connect("tsa_data.db")
+    df_flights = pd.read_sql("SELECT date, SUM(arrival_count) as total_flights FROM flight_stats GROUP BY date", conn_flights)
+    conn_flights.close()
+    
+    df_flights['date'] = pd.to_datetime(df_flights['date'])
+    df = df.merge(df_flights, left_on='ds', right_on='date', how='left')
+    df.drop(columns=['date_y'], inplace=True, errors='ignore') # cleanup
+    df.rename(columns={'date_x': 'date'}, inplace=True, errors='ignore')
+    
+    # Fill missing flight data (e.g. before backfill) with 0 or mean? 
+    # Mean is safer to avoid skewing model with 0s
+    avg_flights = df[df['total_flights'] > 0]['total_flights'].mean()
+    if pd.isna(avg_flights): avg_flights = 0
+    df['total_flights'] = df['total_flights'].fillna(avg_flights)
+    
+    print(f"   Merged {len(df_flights)} flight records.")
+except Exception as e:
+    print(f"   WARNING: Could not load flight stats: {e}")
+    df['total_flights'] = 0
+
 # 2. 特征工程 (Feature Engineering)
 print("Generating features for XGBoost...")
 
@@ -36,12 +60,16 @@ match_month = df['ds'].dt.month.isin([1, 2, 9, 10])
 match_day = df['ds'].dt.dayofweek.isin([1, 2]) # Tue, Wed
 df['is_off_peak_workday'] = (match_month & match_day).astype(int)
 
+# [NEW] Flight Features
+df['flight_lag_1'] = df['total_flights'].shift(1).fillna(method='bfill')
+df['flight_ma_7'] = df['total_flights'].rolling(window=7, min_periods=1).mean().shift(1).fillna(method='bfill')
+
 # D. 填充缺失值
 features = [
     'day_of_week', 'month', 'year', 'day_of_year', 'week_of_year', 'is_weekend',
     'weather_index', 'is_holiday', 'is_spring_break', 'is_off_peak_workday',
     'is_holiday_exact_day', 'is_holiday_travel_window',
-    'lag_7', 'lag_364'
+    'lag_7', 'lag_364', 'flight_lag_1', 'flight_ma_7'
 ]
 
 # 丢弃无法计算 lag_364 的早期数据
@@ -269,6 +297,37 @@ except Exception as e:
     print(f"   WARNING: Failed to load weather features ({e}). Defaulting to 0.")
     future_df['weather_index'] = 0
 
+# [NEW] Flight Stats Integration (OpenSky)
+print("   Merging OpenSky Flight Stats...")
+try:
+    import sqlite3
+    conn = sqlite3.connect("tsa_data.db")
+    # Query flight stats aggregated by date
+    flight_query = """
+        SELECT date, SUM(arrival_count) as total_flights
+        FROM flight_stats
+        GROUP BY date
+    """
+    df_flights = pd.read_sql(flight_query, conn)
+    conn.close()
+    
+    df_flights['date'] = pd.to_datetime(df_flights['date'])
+    
+    # Merge into future_df (needs lag)
+    # Strategy: We need historical flight data to calculate valid lags.
+    # Since future_df is only 7 days, we might miss the context for rolling windows if we just merge left.
+    # Ideally, we should have merged this upstream into 'df' (historical) and 'future_df' (forecast).
+    
+    # Let's do a quick lookup helper since we are in the flow
+    # But wait, looking at the code above, we already processed 'df' (History) at the top. 
+    # We should have merged it there!
+    # TO FIX: We will do a "Patch" here for future_df, 
+    # but strictly speaking we missed adding it to the TRAINING data 'df'.
+    
+    pass 
+except Exception as e:
+    print(f"   WARNING: Failed to load flight stats ({e})")
+
 # [FIX] Real Spring Break Logic (March/April + Weekend + Not Holiday)
 # Logic: Month is 3 or 4, Weekend, Not Holiday
 future_df['is_spring_break'] = 0
@@ -276,6 +335,18 @@ mask_sb = (future_df['ds'].dt.month.isin([3, 4])) & \
           (future_df['ds'].dt.dayofweek.isin([5, 6])) & \
           (future_df['is_holiday'] == 0)
 future_df.loc[mask_sb, 'is_spring_break'] = 1
+
+# [NEW] Generate Future Flight Features
+# Since we don't know future flights, we use the last known values or recent average.
+# Simplest approach: Use the last known flight_ma_7 from the historical 'df'
+last_known_ma7 = df.iloc[-1]['flight_ma_7']
+last_known_lag1 = df.iloc[-1]['total_flights'] # Use today's flights as tomorrow's lag1
+
+future_df['flight_ma_7'] = last_known_ma7
+future_df['flight_lag_1'] = last_known_lag1 # Assume constant capacity for short term
+
+# Refinement: If we have partial future data in flight_stats (unlikely for future), use it.
+# But generally we assume persistence for T+7 forecast.
 
 # E. 预测
 X_future = future_df[features]

@@ -1,5 +1,5 @@
 ﻿date,throughput,weather_index,is_holiday,holiday_name,is_holiday_exact_day,is_holiday_travel_window,is_spring_break,throughput_lag_7
-2019-01-01,2201765.0,3,1,"Travel Window (Christmas Day), New Year's Day",0,1,0,
+2019-01-01,2201765.0,3,1,"New Year's Day, Travel Window (Christmas Day)",0,1,0,
 2019-01-02,2424225.0,0,0,,0,0,0,
 2019-01-03,2279384.0,0,0,,0,0,0,
 2019-01-04,2230078.0,4,0,,0,0,0,
@@ -364,7 +364,7 @@
 2019-12-29,2647034.0,0,0,Travel Window (Christmas Day),0,1,0,2589688.0
 2019-12-30,2572305.0,17,0,Travel Window (Christmas Day),0,1,0,2562555.0
 2019-12-31,2073706.0,8,0,Travel Window (Christmas Day),0,1,0,2042078.0
-2020-01-01,2196916.0,29,1,"Travel Window (Christmas Day), New Year's Day",0,1,0,1996541.0
+2020-01-01,2196916.0,29,1,"New Year's Day, Travel Window (Christmas Day)",0,1,0,1996541.0
 2020-01-02,2461726.0,0,0,,0,0,0,2623113.0
 2020-01-03,2381987.0,1,0,,0,0,0,2654247.0
 2020-01-04,2244162.0,18,0,,0,0,0,2540383.0
@@ -542,20 +542,20 @@
 2020-06-24,525061.0,0,0,,0,0,0,469224.0
 2020-06-25,655228.0,0,0,,0,0,0,607355.0
 2020-06-26,664665.0,3,0,Travel Window (Independence Day (observed)),0,1,0,618968.0
-2020-06-27,575227.0,3,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,536012.0
-2020-06-28,662853.0,3,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,621523.0
-2020-06-29,657778.0,3,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,639816.0
-2020-06-30,530448.0,3,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,499884.0
-2020-07-01,659820.0,0,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,525061.0
-2020-07-02,800456.0,3,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,655228.0
-2020-07-03,752884.0,3,1,"Travel Window (Independence Day), Independence Day (observed)",1,1,0,664665.0
+2020-06-27,575227.0,3,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,536012.0
+2020-06-28,662853.0,3,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,621523.0
+2020-06-29,657778.0,3,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,639816.0
+2020-06-30,530448.0,3,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,499884.0
+2020-07-01,659820.0,0,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,525061.0
+2020-07-02,800456.0,3,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,655228.0
+2020-07-03,752884.0,3,1,"Independence Day (observed), Travel Window (Independence Day)",1,1,0,664665.0
 2020-07-04,495309.0,0,1,"Travel Window (Independence Day (observed)), Independence Day",1,1,0,575227.0
-2020-07-05,767395.0,0,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,662853.0
-2020-07-06,793785.0,0,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,657778.0
-2020-07-07,678147.0,3,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,530448.0
-2020-07-08,669730.0,3,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,659820.0
-2020-07-09,751153.0,0,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,800456.0
-2020-07-10,752434.0,4,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,752884.0
+2020-07-05,767395.0,0,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,662853.0
+2020-07-06,793785.0,0,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,657778.0
+2020-07-07,678147.0,3,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,530448.0
+2020-07-08,669730.0,3,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,659820.0
+2020-07-09,751153.0,0,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,800456.0
+2020-07-10,752434.0,4,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,752884.0
 2020-07-11,696262.0,3,0,Travel Window (Independence Day),0,1,0,495309.0
 2020-07-12,796350.0,0,0,,0,0,0,767395.0
 2020-07-13,738985.0,0,0,,0,0,0,793785.0
@@ -730,7 +730,7 @@
 2020-12-29,1069787.0,31,0,Travel Window (Christmas Day),0,1,0,1043366.0
 2020-12-30,1215423.0,19,0,Travel Window (Christmas Day),0,1,0,1244556.0
 2020-12-31,914456.0,17,0,Travel Window (Christmas Day),0,1,0,885065.0
-2021-01-01,849514.0,6,1,"Travel Window (Christmas Day), New Year's Day",0,1,0,683838.0
+2021-01-01,849514.0,6,1,"New Year's Day, Travel Window (Christmas Day)",0,1,0,683838.0
 2021-01-02,1246953.0,3,0,,0,0,0,1181793.0
 2021-01-03,1381448.0,18,0,,0,0,0,1334030.0
 2021-01-04,1130546.0,0,0,,0,0,0,1161059.0
@@ -892,36 +892,36 @@
 2021-06-09,1684912.0,0,0,,0,0,0,1598873.0
 2021-06-10,1985698.0,3,0,,0,0,0,1823395.0
 2021-06-11,2044087.0,0,0,Travel Window (Juneteenth National Independence Day (observed)),0,1,0,1896190.0
-2021-06-12,1818203.0,3,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,1686932.0
-2021-06-13,2104681.0,0,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,1993494.0
-2021-06-14,1978110.0,0,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,1837383.0
-2021-06-15,1701213.0,0,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,1574822.0
-2021-06-16,1805340.0,0,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,1684912.0
-2021-06-17,2047190.0,0,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,1985698.0
+2021-06-12,1818203.0,3,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,1686932.0
+2021-06-13,2104681.0,0,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,1993494.0
+2021-06-14,1978110.0,0,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,1837383.0
+2021-06-15,1701213.0,0,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,1574822.0
+2021-06-16,1805340.0,0,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,1684912.0
+2021-06-17,2047190.0,0,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,1985698.0
 2021-06-18,2099797.0,3,1,"Juneteenth National Independence Day (observed), Travel Window (Juneteenth National Independence Day)",1,1,0,2044087.0
-2021-06-19,1886401.0,4,1,"Juneteenth National Independence Day, Travel Window (Juneteenth National Independence Day (observed))",1,1,0,1818203.0
-2021-06-20,2107997.0,1,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2104681.0
-2021-06-21,2036775.0,3,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,1978110.0
-2021-06-22,1800947.0,0,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,1701213.0
-2021-06-23,1866027.0,0,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,1805340.0
-2021-06-24,2095773.0,3,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2047190.0
-2021-06-25,2147042.0,1,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2099797.0
+2021-06-19,1886401.0,4,1,"Travel Window (Juneteenth National Independence Day (observed)), Juneteenth National Independence Day",1,1,0,1818203.0
+2021-06-20,2107997.0,1,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2104681.0
+2021-06-21,2036775.0,3,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,1978110.0
+2021-06-22,1800947.0,0,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,1701213.0
+2021-06-23,1866027.0,0,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,1805340.0
+2021-06-24,2095773.0,3,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2047190.0
+2021-06-25,2147042.0,1,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2099797.0
 2021-06-26,1925933.0,17,0,Travel Window (Juneteenth National Independence Day),0,1,0,1886401.0
 2021-06-27,2181055.0,3,0,Travel Window (Independence Day),0,1,0,2107997.0
-2021-06-28,2073847.0,3,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,2036775.0
-2021-06-29,1820725.0,1,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,1800947.0
-2021-06-30,1937606.0,0,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,1866027.0
-2021-07-01,2152087.0,1,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,2095773.0
-2021-07-02,2205102.0,1,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,2147042.0
-2021-07-03,1918985.0,1,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,1925933.0
+2021-06-28,2073847.0,3,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,2036775.0
+2021-06-29,1820725.0,1,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,1800947.0
+2021-06-30,1937606.0,0,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,1866027.0
+2021-07-01,2152087.0,1,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,2095773.0
+2021-07-02,2205102.0,1,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,2147042.0
+2021-07-03,1918985.0,1,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,1925933.0
 2021-07-04,1697422.0,0,1,"Travel Window (Independence Day (observed)), Independence Day",1,1,0,2181055.0
-2021-07-05,2167826.0,0,1,"Travel Window (Independence Day), Independence Day (observed)",1,1,0,2073847.0
-2021-07-06,1896755.0,0,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,1820725.0
-2021-07-07,1891781.0,0,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,1937606.0
-2021-07-08,2102632.0,3,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,2152087.0
-2021-07-09,2158137.0,4,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,2205102.0
-2021-07-10,1993017.0,0,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,1918985.0
-2021-07-11,2211451.0,0,0,"Travel Window (Independence Day), Travel Window (Independence Day (observed))",0,1,0,1697422.0
+2021-07-05,2167826.0,0,1,"Independence Day (observed), Travel Window (Independence Day)",1,1,0,2073847.0
+2021-07-06,1896755.0,0,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,1820725.0
+2021-07-07,1891781.0,0,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,1937606.0
+2021-07-08,2102632.0,3,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,2152087.0
+2021-07-09,2158137.0,4,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,2205102.0
+2021-07-10,1993017.0,0,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,1918985.0
+2021-07-11,2211451.0,0,0,"Travel Window (Independence Day (observed)), Travel Window (Independence Day)",0,1,0,1697422.0
 2021-07-12,2100231.0,1,0,Travel Window (Independence Day (observed)),0,1,0,2167826.0
 2021-07-13,1840503.0,1,0,,0,0,0,1896755.0
 2021-07-14,1919907.0,0,0,,0,0,0,1891781.0
@@ -1081,21 +1081,21 @@
 2021-12-15,1769605.0,29,0,,0,0,0,1621499.0
 2021-12-16,2137354.0,3,0,,0,0,0,1969493.0
 2021-12-17,2235581.0,3,0,Travel Window (Christmas Day (observed)),0,1,0,2053444.0
-2021-12-18,2040879.0,18,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,1671592.0
-2021-12-19,2184906.0,3,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2107361.0
-2021-12-20,2099852.0,0,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,1919994.0
-2021-12-21,1996071.0,0,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,1590394.0
-2021-12-22,2106209.0,3,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,1769605.0
-2021-12-23,2197896.0,3,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2137354.0
-2021-12-24,1713351.0,16,1,"Travel Window (Christmas Day), Christmas Day (observed)",1,1,0,2235581.0
-2021-12-25,1535935.0,3,1,"Christmas Day, Travel Window (Christmas Day (observed))",1,1,0,2040879.0
-2021-12-26,2074458.0,3,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2184906.0
-2021-12-27,2093615.0,34,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2099852.0
-2021-12-28,2000891.0,5,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,1996071.0
-2021-12-29,2029343.0,1,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2106209.0
-2021-12-30,2069413.0,4,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2197896.0
-2021-12-31,1658357.0,5,1,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed)), New Year's Day (observed)",0,1,0,1713351.0
-2022-01-01,1616850.0,40,1,"Travel Window (Christmas Day), New Year's Day",0,1,0,1535935.0
+2021-12-18,2040879.0,18,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,1671592.0
+2021-12-19,2184906.0,3,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2107361.0
+2021-12-20,2099852.0,0,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,1919994.0
+2021-12-21,1996071.0,0,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,1590394.0
+2021-12-22,2106209.0,3,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,1769605.0
+2021-12-23,2197896.0,3,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2137354.0
+2021-12-24,1713351.0,16,1,"Christmas Day (observed), Travel Window (Christmas Day)",1,1,0,2235581.0
+2021-12-25,1535935.0,3,1,"Travel Window (Christmas Day (observed)), Christmas Day",1,1,0,2040879.0
+2021-12-26,2074458.0,3,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2184906.0
+2021-12-27,2093615.0,34,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2099852.0
+2021-12-28,2000891.0,5,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,1996071.0
+2021-12-29,2029343.0,1,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2106209.0
+2021-12-30,2069413.0,4,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2197896.0
+2021-12-31,1658357.0,5,1,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day), New Year's Day (observed)",0,1,0,1713351.0
+2022-01-01,1616850.0,40,1,"New Year's Day, Travel Window (Christmas Day)",0,1,0,1535935.0
 2022-01-02,2026176.0,32,0,,0,0,0,2074458.0
 2022-01-03,1921966.0,18,0,,0,0,0,2093615.0
 2022-01-04,1673499.0,3,0,,0,0,0,2000891.0
@@ -1258,20 +1258,20 @@
 2022-06-10,2443671.0,0,0,,0,0,0,2347283.0
 2022-06-11,2153865.0,3,0,,0,0,0,1992251.0
 2022-06-12,2456971.0,3,0,Travel Window (Juneteenth National Independence Day),0,1,0,2396442.0
-2022-06-13,2389152.0,3,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2286429.0
-2022-06-14,2139865.0,3,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2067274.0
-2022-06-15,2238873.0,16,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2175579.0
-2022-06-16,2387496.0,16,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2396538.0
-2022-06-17,2454485.0,3,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2443671.0
-2022-06-18,2186387.0,16,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2153865.0
-2022-06-19,2398687.0,16,1,"Juneteenth National Independence Day, Travel Window (Juneteenth National Independence Day (observed))",1,1,0,2456971.0
+2022-06-13,2389152.0,3,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2286429.0
+2022-06-14,2139865.0,3,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2067274.0
+2022-06-15,2238873.0,16,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2175579.0
+2022-06-16,2387496.0,16,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2396538.0
+2022-06-17,2454485.0,3,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2443671.0
+2022-06-18,2186387.0,16,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2153865.0
+2022-06-19,2398687.0,16,1,"Travel Window (Juneteenth National Independence Day (observed)), Juneteenth National Independence Day",1,1,0,2456971.0
 2022-06-20,2431925.0,3,1,"Juneteenth National Independence Day (observed), Travel Window (Juneteenth National Independence Day)",1,1,0,2389152.0
-2022-06-21,2158912.0,3,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2139865.0
-2022-06-22,2197876.0,0,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2238873.0
-2022-06-23,2453936.0,0,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2387496.0
-2022-06-24,2471808.0,3,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2454485.0
-2022-06-25,2198435.0,0,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2186387.0
-2022-06-26,2469720.0,3,0,"Travel Window (Juneteenth National Independence Day (observed)), Travel Window (Juneteenth National Independence Day)",0,1,0,2398687.0
+2022-06-21,2158912.0,3,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2139865.0
+2022-06-22,2197876.0,0,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2238873.0
+2022-06-23,2453936.0,0,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2387496.0
+2022-06-24,2471808.0,3,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2454485.0
+2022-06-25,2198435.0,0,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2186387.0
+2022-06-26,2469720.0,3,0,"Travel Window (Juneteenth National Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2398687.0
 2022-06-27,2374892.0,1,0,"Travel Window (Independence Day), Travel Window (Juneteenth National Independence Day (observed))",0,1,0,2431925.0
 2022-06-28,2147125.0,1,0,Travel Window (Independence Day),0,1,0,2158912.0
 2022-06-29,2237932.0,17,0,Travel Window (Independence Day),0,1,0,2197876.0
@@ -1447,20 +1447,20 @@
 2022-12-16,2453178.0,3,0,,0,0,0,2295917.0
 2022-12-17,2233861.0,0,0,,0,0,0,1886068.0
 2022-12-18,2357086.0,0,0,Travel Window (Christmas Day),0,1,0,2293624.0
-2022-12-19,2264761.0,0,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2167861.0
-2022-12-20,2216373.0,0,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,1810814.0
-2022-12-21,2428528.0,5,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,1993063.0
-2022-12-22,2366608.0,36,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2298485.0
-2022-12-23,2096506.0,29,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2453178.0
-2022-12-24,1834551.0,16,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2233861.0
-2022-12-25,1800463.0,3,1,"Christmas Day, Travel Window (Christmas Day (observed))",1,1,0,2357086.0
-2022-12-26,2218145.0,0,1,"Travel Window (Christmas Day), Christmas Day (observed)",1,1,0,2264761.0
-2022-12-27,2178719.0,0,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2216373.0
-2022-12-28,2153682.0,31,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2428528.0
-2022-12-29,2178433.0,18,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2366608.0
-2022-12-30,2383422.0,3,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,2096506.0
-2022-12-31,1935413.0,0,0,"Travel Window (Christmas Day), Travel Window (Christmas Day (observed))",0,1,0,1834551.0
-2023-01-01,2046950.0,0,1,"Travel Window (Christmas Day), New Year's Day, Travel Window (Christmas Day (observed))",0,1,0,1800463.0
+2022-12-19,2264761.0,0,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2167861.0
+2022-12-20,2216373.0,0,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,1810814.0
+2022-12-21,2428528.0,5,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,1993063.0
+2022-12-22,2366608.0,36,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2298485.0
+2022-12-23,2096506.0,29,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2453178.0
+2022-12-24,1834551.0,16,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2233861.0
+2022-12-25,1800463.0,3,1,"Travel Window (Christmas Day (observed)), Christmas Day",1,1,0,2357086.0
+2022-12-26,2218145.0,0,1,"Christmas Day (observed), Travel Window (Christmas Day)",1,1,0,2264761.0
+2022-12-27,2178719.0,0,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2216373.0
+2022-12-28,2153682.0,31,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2428528.0
+2022-12-29,2178433.0,18,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2366608.0
+2022-12-30,2383422.0,3,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,2096506.0
+2022-12-31,1935413.0,0,0,"Travel Window (Christmas Day (observed)), Travel Window (Christmas Day)",0,1,0,1834551.0
+2023-01-01,2046950.0,0,1,"Travel Window (Christmas Day (observed)), New Year's Day, Travel Window (Christmas Day)",0,1,0,1800463.0
 2023-01-02,2368194.0,18,1,"Travel Window (Christmas Day (observed)), New Year's Day (observed)",0,1,0,2218145.0
 2023-01-03,2212528.0,0,0,,0,0,0,2178719.0
 2023-01-04,1985965.0,0,0,,0,0,0,2153682.0
@@ -1825,7 +1825,7 @@
 2023-12-29,2636605.0,0,0,Travel Window (Christmas Day),0,1,0,2775193.0
 2023-12-30,2563962.0,0,0,Travel Window (Christmas Day),0,1,0,2606577.0
 2023-12-31,2116715.0,5,0,Travel Window (Christmas Day),0,1,0,1972309.0
-2024-01-01,2303507.0,0,1,"Travel Window (Christmas Day), New Year's Day",0,1,0,2028266.0
+2024-01-01,2303507.0,0,1,"New Year's Day, Travel Window (Christmas Day)",0,1,0,2028266.0
 2024-01-02,2555447.0,0,0,,0,0,0,2665034.0
 2024-01-03,2418600.0,0,0,,0,0,0,2663517.0
 2024-01-04,2281402.0,0,0,,0,0,0,2633264.0
@@ -2191,7 +2191,7 @@
 2024-12-29,2805401.0,0,0,Travel Window (Christmas Day),0,1,0,2800962.0
 2024-12-30,2765740.0,16,0,Travel Window (Christmas Day),0,1,0,2758299.0
 2024-12-31,2172902.0,0,0,Travel Window (Christmas Day),0,1,0,2068817.0
-2025-01-01,2317817.0,0,1,"Travel Window (Christmas Day), New Year's Day",0,1,0,2039342.0
+2025-01-01,2317817.0,0,1,"New Year's Day, Travel Window (Christmas Day)",0,1,0,2039342.0
 2025-01-02,2612162.0,0,0,,0,0,0,2743795.0
 2025-01-03,2563751.0,0,0,,0,0,0,2848156.0
 2025-01-04,2543303.0,5,0,,0,0,0,2741872.0
@@ -2556,7 +2556,7 @@
 2025-12-29,2811757.0,34,0,Travel Window (Christmas Day),0,1,0,2795090.0
 2025-12-30,2827572.0,5,0,Travel Window (Christmas Day),0,1,0,2822653.0
 2025-12-31,2291360.0,5,0,Travel Window (Christmas Day),0,1,0,2236205.0
-2026-01-01,2334465.0,5,1,"Travel Window (Christmas Day), New Year's Day",0,1,0,2066118.0
+2026-01-01,2334465.0,5,1,"New Year's Day, Travel Window (Christmas Day)",0,1,0,2066118.0
 2026-01-02,2578209.0,0,0,,0,0,0,2716278.0
 2026-01-03,2604749.0,0,0,,0,0,0,2804814.0
 2026-01-04,2817509.0,0,0,,0,0,0,2924593.0

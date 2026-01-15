@@ -262,5 +262,50 @@ def update_data():
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# API: 狙击模型 (T+0 Nowcasting)
+@app.route('/api/predict_sniper', methods=['POST'])
+def predict_sniper():
+    try:
+        import subprocess
+        import sys
+        import json
+        
+        # Determine target date? For now default to script default (Today/Tomorrow)
+        # Or accept from JSON body if needed
+        
+        print("🎯 启动狙击模型 (Sniper Mode)...")
+        
+        # Run script
+        result = subprocess.run(
+            [sys.executable, 'predict_sniper.py'],
+            capture_output=True,
+            text=True,
+            encoding='utf-8', 
+            errors='replace',
+            cwd=os.getcwd(),
+            timeout=30 # Fast timeout
+        )
+        
+        if result.returncode == 0:
+            # Parse JSON from stdout
+            try:
+                # Script might print other things, find the JSON line
+                lines = result.stdout.strip().split('\n')
+                # Assume last line is JSON
+                json_str = lines[-1]
+                data = json.loads(json_str)
+                print(f"✅ Sniper Hit: {data}")
+                return jsonify({'status': 'success', 'data': data})
+            except Exception as parse_err:
+                print(f"⚠️ JSON Parse Error: {parse_err}. Stdout: {result.stdout}")
+                return jsonify({'status': 'error', 'message': '无法解析模型输出', 'raw': result.stdout}), 500
+        else:
+            print(f"❌ Sniper Missed: {result.stderr}")
+            return jsonify({'status': 'error', 'message': '模型运行失败', 'error': result.stderr}), 500
+            
+    except Exception as e:
+        print(f"❌ Sniper Error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
