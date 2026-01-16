@@ -2,14 +2,23 @@ import pandas as pd
 import numpy as np
 import holidays
 import os
+import sqlite3
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_percentage_error
 import warnings
+import sys
+
+# Add src to path if run directly
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from src.config import DB_PATH
+
 warnings.filterwarnings('ignore')
 
-# 1. 加载数据
-print("Loading data...")
-df = pd.read_csv("TSA_Final_Analysis.csv")
+# 1. 加载数据 (From DB)
+print("Loading data from SQLite (traffic_full)...")
+conn = sqlite3.connect(DB_PATH)
+df = pd.read_sql("SELECT * FROM traffic_full", conn)
+conn.close()
 df['ds'] = pd.to_datetime(df['date'])
 df['y'] = df['throughput']
 df = df.sort_values('ds').reset_index(drop=True)

@@ -7,15 +7,17 @@ import numpy as np
 import sqlite3
 import warnings
 import sys
-import json
-from xgboost import XGBRegressor
-from datetime import datetime, timedelta
+import os
+
+# Add src to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from src.config import DB_PATH, SNIPER_MODEL_PATH
 
 # 禁用无关的警告信息，保持输出整洁
 warnings.filterwarnings('ignore')
 
-DB_PATH = 'tsa_data.db'
-CSV_PATH = 'TSA_Final_Analysis.csv'
+# DB_PATH = 'tsa_data.db' 
+# CSV_PATH = 'TSA_Final_Analysis.csv' # Removed
 
 def get_db_connection():
     """获取数据库连接"""
@@ -30,8 +32,14 @@ def load_data():
     2. 从 SQLite 读取 OpenSky 记录的各机场航班量。
     3. 按日期进行合并，形成包含“客流+飞行量”的联合训练集。
     """
-    # 1. 加载 TSA 客流历史
-    df = pd.read_csv(CSV_PATH)
+    # 1. 加载 TSA 客流历史 (From DB)
+    conn = get_db_connection()
+    df = pd.read_sql("SELECT * FROM traffic_full", conn)
+    # Don't close conn yet if we need it later, or just close it.
+    # Actually, lines below open conn again. So let's close it or keep it open.
+    # But wait, line 40 opens conn again. Let's just use it and close it.
+    conn.close()
+    
     df['ds'] = pd.to_datetime(df['date'])
     df['y'] = df['throughput']
     df = df.sort_values('ds').reset_index(drop=True)
@@ -90,7 +98,7 @@ def train_and_predict(target_date_str):
     y_train = train_df['y']
     
     # [NEW] Model Persistence Logic
-    model_file = "sniper_model.json"
+    model_file = SNIPER_MODEL_PATH
     is_loaded = False
     
     # Try to load model
@@ -138,23 +146,60 @@ def train_and_predict(target_date_str):
     month = target_date.month
     is_weekend = 1 if day_of_week >= 5 else 0
     
-    # 从数据库实时获取当天的真实航班总量（该数据由 fetch_opensky.py 维持实时性）
+    # 从数据库实时获取当天的真实航班总量
     conn = get_db_connection()
     row = conn.execute("SELECT SUM(arrival_count) FROM flight_stats WHERE date = ?", (target_date_str,)).fetchone()
     conn.close()
     
     flight_volume = row[0] if row and row[0] else 0
     
-    # 容错逻辑：如果当天没有抓取到航班（如 API 封禁或延迟），启用后备均值模式，确保结果不崩溃。
+    # [SMART SNIPER LOGIC]
+    # 如果数据库里的数据少得离谱 (比如只有 17 条)，说明数据可能不完整或未抓取。
+    # 此时应触发“即时抓取 (Just-in-Time Fetch)”，而不是直接用错误的 17 去预测。
+    if flight_volume < 500: # 正常阈值通常 > 3000
+        print(f"   [JIT触发] 检测到航班量异常偏低 ({flight_volume})，尝试现场抓取...")
+        try:
+            # 动态导入防止循环引用
+            import fetch_opensky
+            
+            # [FIX] 响应用户需求，保持与主抓取逻辑一致，使用全部 Top 10 机场
+            # 而不是仅抓取 Top 5。虽然速度稍慢，但数据口径完全统一。
+            top_airports = fetch_opensky.AIRPORTS
+            
+            for icao in top_airports:
+                count = fetch_opensky.fetch_arrival_count(target_date_str, icao)
+                if count:
+                    total_jit += count
+                    jit_data.append((target_date_str, icao, count))
+            
+            if total_jit > flight_volume:
+                print(f"   [JIT成功] 现场抓取到 {total_jit} 架次，更新数据库...")
+                flight_volume = total_jit * 2 # 粗略估算：Top 5 约占总量的 50%? 或者只用 Top 5 代表趋势。
+                # 更稳妥：把抓到的存入 DB，再次查询 sum
+                fetch_opensky.save_to_db(jit_data)
+                
+                # Re-query distinct sum from DB to be accurate
+                conn = get_db_connection()
+                row = conn.execute("SELECT SUM(arrival_count) FROM flight_stats WHERE date = ?", (target_date_str,)).fetchone()
+                if row and row[0]:
+                    flight_volume = row[0]
+                conn.close()
+                
+        except Exception as e:
+            print(f"   [JIT失败] 现场抓取遇到问题: {e}")
+
+    # 容错逻辑：如果 JIT 后依然为 0 (如 API 429)，则启用后备均值模式
     is_fallback = False
-    if flight_volume == 0:
+    if flight_volume < 100: # 依然过低
+        print(f"   [降级模式] 航班数据 ({flight_volume}) 不足以支撑预测，切换至历史均值。")
         avg_flights = df['total_flights'].mean()
         # 尝试拿昨天的飞行量作为替代预测依据
         yesterday_str = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
         conn = get_db_connection()
         row_y = conn.execute("SELECT SUM(arrival_count) FROM flight_stats WHERE date = ?", (yesterday_str,)).fetchone()
         conn.close()
-        flight_volume = row_y[0] if row_y and row_y[0] else avg_flights
+        # 如果昨天有数，用昨天的；否则用历史平均
+        flight_volume = row_y[0] if (row_y and row_y[0] > 500) else avg_flights
         is_fallback = True
         
     # 打包输入特征向量

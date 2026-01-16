@@ -4,7 +4,7 @@ echo      Mikon AI Scout - Data Update Tool
 echo ==========================================
 echo.
 echo [1/3] Scraping latest TSA passenger data...
-python build_tsa_db.py
+python -m src.etl.build_tsa_db
 if %errorlevel% neq 0 (
     echo Error: TSA scraping failed!
     pause
@@ -13,7 +13,7 @@ if %errorlevel% neq 0 (
 
 echo.
 echo [2/3] Fetching historical weather data...
-python get_weather_features.py
+python -m src.etl.get_weather_features
 if %errorlevel% neq 0 (
     echo Error: Weather fetching failed!
     pause
@@ -22,7 +22,7 @@ if %errorlevel% neq 0 (
 
 echo.
 echo [3/3] Merging datasets into traffic_full...
-python merge_db.py
+python -m src.etl.merge_db
 if %errorlevel% neq 0 (
     echo Error: Database merge failed!
     pause
@@ -31,11 +31,11 @@ if %errorlevel% neq 0 (
 
 echo.
 echo [4/5] Training Prophet Model (Trend Analysis)...
-python train_model.py
+python -m src.models.train_prophet
 
 echo.
 echo [5/5] Training XGBoost Model (Precision Forecast)...
-python train_xgb.py
+python -m src.models.train_xgb
 
 echo.
 echo ==========================================

@@ -1,0 +1,65 @@
+=== Database Schema: tsa_data.db ===
+
+Table: [traffic]
+cid name                 type       pk 
+----------------------------------------
+0   date                 TEXT       1  
+1   throughput           INTEGER    0  
+
+Table: [traffic_features]
+cid name                 type       pk 
+----------------------------------------
+0   date                 TEXT       0  
+1   throughput           INTEGER    0  
+2   day_of_week          INTEGER    0  
+3   month                INTEGER    0  
+4   quarter              INTEGER    0  
+5   year                 INTEGER    0  
+6   is_holiday           INTEGER    0  
+7   holiday_name         TEXT       0  
+8   is_pandemic          INTEGER    0  
+
+Table: [prediction_history]
+cid name                 type       pk 
+----------------------------------------
+0   id                   INTEGER    1  
+1   target_date          TEXT       0  
+2   predicted_throughput INTEGER    0  
+3   model_run_date       TEXT       0  
+4   created_at           TIMESTAMP  0  
+
+Table: [sqlite_sequence]
+cid name                 type       pk 
+----------------------------------------
+0   name                            0  
+1   seq                             0  
+
+Table: [flight_stats]
+cid name                 type       pk 
+----------------------------------------
+0   date                 TEXT       1  
+1   airport              TEXT       2  
+2   arrival_count        INTEGER    0  
+3   updated_at           TIMESTAMP  0  
+
+Table: [traffic_full]
+cid name                 type       pk 
+----------------------------------------
+0   date                 TEXT       0  
+1   throughput           REAL       0  
+2   weather_index        INTEGER    0  
+3   is_holiday           INTEGER    0  
+4   holiday_name         TEXT       0  
+5   is_holiday_exact_day INTEGER    0  
+6   is_holiday_travel_window INTEGER    0  
+7   is_spring_break      INTEGER    0  
+8   throughput_lag_7     REAL       0  
+
+=== CSV Structure: weather_features.csv ===
+Columns: ['date', 'weather_index']
+         date  weather_index
+0  2019-01-01              3
+1  2019-01-02              0
+2  2019-01-03              0
+3  2019-01-04              4
+4  2019-01-05              0

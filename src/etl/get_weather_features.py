@@ -4,6 +4,15 @@ import pandas as pd
 from retry_requests import retry
 import datetime
 import numpy as np
+import sqlite3
+
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from src.config import DB_PATH
+
+# 配置
+# DB_PATH = 'tsa_data.db'
 
 # 1. 配置 API 客户端 (带缓存和重试)
 cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
@@ -148,10 +157,33 @@ try:
     # 转换为 DataFrame
     weather_index_df = weather_index_series.reset_index(name='weather_index')
     
-    # 5. 输出
-    output_file = "weather_features.csv"
-    print(f"写入文件 {output_file} ...")
-    weather_index_df.to_csv(output_file, index=False)
+    # 5. 存入数据库 (DB Storage)
+    print(f"正在存入数据库 {DB_PATH} ...")
+    
+    def save_weather_to_db(detailed_df, index_df):
+        conn = sqlite3.connect(DB_PATH)
+        
+        # A. 存入详细天气表 (weather)
+        # Ensure date is string (It is already converted at line 124)
+        # detailed_df['date'] = detailed_df['date'].dt.strftime('%Y-%m-%d') 
+        # Add updated_at timestamp
+        detailed_df['updated_at'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Columns to save
+        cols = ['date', 'airport', 'snowfall_cm', 'windspeed_kmh', 'precipitation_mm', 'severity_score', 'updated_at']
+        detailed_df[cols].to_sql('weather', conn, if_exists='replace', index=False)
+        print(f"   - 表 [weather]: 已更新 {len(detailed_df)} 条数据")
+        
+        # B. 存入每日指数表 (daily_weather_index) - 用于快速合并
+        # index_df already has 'date' as string from line 124 in original code (aggregated from full_df)
+        index_df['updated_at'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        index_df.to_sql('daily_weather_index', conn, if_exists='replace', index=False)
+        print(f"   - 表 [daily_weather_index]: 已更新 {len(index_df)} 条数据")
+        
+        conn.close()
+
+    save_weather_to_db(full_df, weather_index_df)
+    print("✅ 天气数据数据库化完成。")
     
     # 7. 检查 2026-01-10 (用户指定日期)
     print("\n=== 检查 2026-01-10 原始数据与评分 ===")

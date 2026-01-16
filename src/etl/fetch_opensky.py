@@ -11,8 +11,13 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from src.config import DB_PATH
+
 # 数据库与接口配置
-DB_PATH = 'tsa_data.db'
+# DB_PATH = 'tsa_data.db'
 BASE_URL = "https://opensky-network.org/api/flights/arrival"
 # 监控美国吞吐量最大的前 10 个枢纽机场，这些机场的变动对 TSA 总量具有极强的代表性
 AIRPORTS = [

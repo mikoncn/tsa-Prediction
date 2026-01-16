@@ -7,9 +7,18 @@ import time
 import argparse
 
 # 配置
+import sys
+import os
+
+# Ensure we can import src if run directly (though python -m is preferred)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from src.config import DB_PATH
+
+# 配置
 BASE_URL = "https://www.tsa.gov"
 START_URL = "https://www.tsa.gov/travel/passenger-volumes"
-DB_NAME = "tsa_data.db"
+DB_NAME = DB_PATH
 TABLE_NAME = "traffic"
 
 def init_db():

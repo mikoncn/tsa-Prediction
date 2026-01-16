@@ -4,8 +4,13 @@ import datetime
 from dateutil.easter import easter
 import numpy as np
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from src.config import DB_PATH
+
 # 配置
-DB_PATH = 'tsa_data.db'
+# DB_PATH = 'tsa_data.db'
 WEATHER_CSV = 'weather_features.csv'
 
 def get_db_connection():
@@ -78,11 +83,15 @@ def main():
         'holiday_name': lambda x: ', '.join(set([str(v) for v in x])) # Join names
     }).reset_index()
 
+    # 1.5 Load Weather from DB (Replacing CSV)
+    print("1. Loading Weather Data from DB...")
     try:
-        df_weather = pd.read_csv(WEATHER_CSV)
+        # [NEW] Read from daily_weather_index table
+        df_weather = pd.read_sql("SELECT date, weather_index FROM daily_weather_index", conn)
     except Exception as e:
-        print(f"Error reading weather CSV: {e}")
-        return
+        print(f"Error reading weather table: {e}")
+        # Fallback empty df if table doesn't exist yet
+        df_weather = pd.DataFrame(columns=['date', 'weather_index'])
 
     # 规范化日期格式
     for df in [df_traffic, df_holiday, df_weather]:
@@ -92,7 +101,11 @@ def main():
     print("2. 构建时间骨架 (2019-01-01 ~ Future)...")
     start_date = '2019-01-01'
     # 结束日期取天气的最后一天 (通常是未来15天)
-    end_date = df_weather['date'].max()
+    if not df_weather.empty:
+        end_date = df_weather['date'].max()
+    else:
+        end_date = pd.Timestamp.now() + pd.Timedelta(days=15)
+        
     print(f"   时间范围: {start_date} 到 {end_date}")
     
     df_skeleton = pd.DataFrame({'date': pd.date_range(start=start_date, end=end_date)})
@@ -101,6 +114,7 @@ def main():
     print("3. 执行合并 (Left Join)...")
     df_full = df_skeleton.merge(df_traffic, on='date', how='left')
     df_full = df_full.merge(df_holiday, on='date', how='left')
+    # Merge weather (inner join logic effectively, but left to keep skeleton)
     df_full = df_full.merge(df_weather, on='date', how='left')
     
     # 4. 基础清洗
@@ -120,13 +134,16 @@ def main():
     easter_dates = []
     
     for year in years:
-        e_sun = pd.Timestamp(easter(year))
-        # 窗口: Good Friday(-2), Holy Saturday(-1), Sunday(0), Monday(+1)
-        window = [e_sun - pd.Timedelta(days=2), 
-                  e_sun - pd.Timedelta(days=1),
-                  e_sun, 
-                  e_sun + pd.Timedelta(days=1)]
-        easter_dates.extend(window)
+        try:
+            e_sun = pd.Timestamp(easter(year))
+            # 窗口: Good Friday(-2), Holy Saturday(-1), Sunday(0), Monday(+1)
+            window = [e_sun - pd.Timedelta(days=2), 
+                      e_sun - pd.Timedelta(days=1),
+                      e_sun, 
+                      e_sun + pd.Timedelta(days=1)]
+            easter_dates.extend(window)
+        except Exception: 
+            continue # In case year is out of range for dateutil
         
     # 标记复活节
     # 注意: 如果原本已经是节日(比如和其他联邦假日重叠)，这里会覆盖，或者保留?
@@ -143,17 +160,20 @@ def main():
     sb_dates = []
     
     for year in years:
-        # 规则: 2月的第2个周日
-        # 1. 找到2月1日
-        feb_first = pd.Timestamp(year=year, month=2, day=1)
-        # 2. 找到第一个周日 (dayofweek: Mon=0, Sun=6)
-        days_to_first_sunday = (6 - feb_first.dayofweek) % 7
-        first_sunday = feb_first + pd.Timedelta(days=days_to_first_sunday)
-        # 3. 第二个周日 = 第一个周日 + 7天
-        sb_sunday = first_sunday + pd.Timedelta(days=7)
-        sb_monday = sb_sunday + pd.Timedelta(days=1)
-        
-        sb_dates.extend([sb_sunday, sb_monday])
+        try:
+            # 规则: 2月的第2个周日
+            # 1. 找到2月1日
+            feb_first = pd.Timestamp(year=year, month=2, day=1)
+            # 2. 找到第一个周日 (dayofweek: Mon=0, Sun=6)
+            days_to_first_sunday = (6 - feb_first.dayofweek) % 7
+            first_sunday = feb_first + pd.Timedelta(days=days_to_first_sunday)
+            # 3. 第二个周日 = 第一个周日 + 7天
+            sb_sunday = first_sunday + pd.Timedelta(days=7)
+            sb_monday = sb_sunday + pd.Timedelta(days=1)
+            
+            sb_dates.extend([sb_sunday, sb_monday])
+        except Exception:
+            continue
         
     mask_sb = df_full['date'].isin(sb_dates)
     # 标记为节日
@@ -196,9 +216,9 @@ def main():
     
     final_df.to_sql('traffic_full', conn, if_exists='replace', index=False)
     
-    # NEW: 导出 CSV 供分析使用 (替代 export_table.py)
-    print("7.5 导出 CSV (TSA_Final_Analysis.csv) ...")
-    final_df.to_csv('TSA_Final_Analysis.csv', index=False, encoding='utf-8-sig')
+    # NEW: 停止导出 CSV (Removed export_table.py logic)
+    print("7.5 [Migration] CSV Export Disabled. Data saved to traffic_full table.")
+    # final_df.to_csv('TSA_Final_Analysis.csv', index=False, encoding='utf-8-sig')
     
     # 9. 验证
     print("\n=== 验证阶段 ===")

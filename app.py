@@ -4,7 +4,12 @@ import pandas as pd
 import os
 
 app = Flask(__name__)
-DB_PATH = 'tsa_data.db'
+
+# [NEW] Import config
+import sys
+# Ensure src can be imported if app.py is run directly
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from src.config import DB_PATH
 
 # 获取数据库连接的助手函数
 def get_db_connection():
@@ -57,108 +62,106 @@ def get_data():
 def get_predictions():
     result = {}
     
-    # 1. 加载未来 7 天的预测结果 (从 train_xgb.py 生成的 CSV)
     try:
-        df_forecast = pd.read_csv("xgb_forecast.csv")
-        result['forecast'] = df_forecast.to_dict(orient='records')
-    except Exception as e:
-        result['forecast'] = []
-        print(f"Error loading forecast: {e}")
-
-    # 2. 加载历史预测记录并与真实流量合并 (用于模型回测表格)
-    try:
-        # [MIGRATION] Read from SQLite instead of CSV
         conn = sqlite3.connect('tsa_data.db')
         conn.row_factory = sqlite3.Row
         
-        # Query History
-        query_hist = "SELECT target_date, predicted_throughput, model_run_date FROM prediction_history"
-        df_hist = pd.read_sql(query_hist, conn)
+        from datetime import datetime
+        now_str = datetime.now().strftime('%Y-%m-%d')
         
-        # Query Actuals (Read from traffic table or use CSV? CSV is exported by merge_db, let's use traffic table for purity or CSV for consistency)
-        # Using CSV for 'actuals' is fine as it's the analysis file, but ideally we move all to DB. 
-        # For now, let's keep reading actuals from CSV to minimize risk, or read from traffic_full if available.
-        # Let's stick to TSA_Final_Analysis.csv for actuals as it has valid structure.
-        df_actual = pd.read_csv("TSA_Final_Analysis.csv")
+        # 1. 加载未来预测 (Forecast) - From SQLite 'prediction_history'
+        # Logic: Get predictions for Date >= Today
+        query_forecast = """
+            SELECT target_date, predicted_throughput, model_run_date 
+            FROM prediction_history 
+            WHERE target_date >= ?
+        """
+        df_preds = pd.read_sql(query_forecast, conn, params=(now_str,))
+        
+        if not df_preds.empty:
+            # Dedupe: keep latest model_run_date for each target_date
+            df_preds['target_date'] = pd.to_datetime(df_preds['target_date']).dt.strftime('%Y-%m-%d')
+            # Sort by run_date DESC, keep first
+            df_forecast = df_preds.sort_values('model_run_date', ascending=False).drop_duplicates('target_date')
+            # Sort by date ASC for chart
+            df_forecast = df_forecast.sort_values('target_date')
+            
+            result['forecast'] = df_forecast[['target_date', 'predicted_throughput']].rename(columns={
+                'target_date': 'ds',
+                'predicted_throughput': 'predicted_throughput'
+            }).to_dict(orient='records')
+        else:
+            result['forecast'] = []
+
+        # 2. 加载历史验证 (Validation) - From SQLite 'prediction_history' & 'traffic_full'
+        # Query History (Past predictions)
+        query_hist = "SELECT target_date, predicted_throughput, model_run_date FROM prediction_history WHERE target_date < ?"
+        df_hist = pd.read_sql(query_hist, conn, params=(now_str,))
+        
+        # [FIX] Generate 'History' (Orange Line) separately from Validation
+        # History should show ALL past predictions, even if we don't have actuals yet.
+        if not df_hist.empty:
+            # 1. Standardize formatting
+            df_hist['target_date'] = pd.to_datetime(df_hist['target_date']).dt.strftime('%Y-%m-%d')
+            # 2. Keep latest prediction per date
+            df_hist_clean = df_hist.sort_values('model_run_date', ascending=False).drop_duplicates('target_date')
+            # 3. Sort for chart
+            df_hist_clean = df_hist_clean.sort_values('target_date')
+            
+            result['history'] = df_hist_clean[['target_date', 'predicted_throughput']].rename(columns={
+                'target_date': 'date',
+                'predicted_throughput': 'predicted'
+            }).to_dict(orient='records')
+        else:
+            result['history'] = []
+            
+        # Query Actuals (From traffic_full)
+        query_actual = "SELECT date, throughput FROM traffic_full WHERE throughput IS NOT NULL"
+        df_actual = pd.read_sql(query_actual, conn)
         
         conn.close()
         
-        if not df_hist.empty:
-            # Merge Actuals into History
-            # Ensure dates are strings YYYY-MM-DD
-            try:
-                df_hist['target_date'] = pd.to_datetime(df_hist['target_date']).dt.strftime('%Y-%m-%d')
-                df_actual['date'] = pd.to_datetime(df_actual['date']).dt.strftime('%Y-%m-%d')
-            except Exception as e:
-                print(f"ERROR: Date conversion failed: {e}")
-                raise e
-
+        # Validation Table (Only where we have BOTH Prediction AND Actuals)
+        if not df_hist.empty and not df_actual.empty:
+            # Standardization
+            # df_hist['target_date'] is already standardized above
+            df_actual['date'] = pd.to_datetime(df_actual['date']).dt.strftime('%Y-%m-%d')
+            
+            # Merge
             merged = pd.merge(df_hist, df_actual, left_on='target_date', right_on='date', how='inner')
             
-            # Logic: For each target_date, find the prediction made 1 day before (or latest available)
-            # Simple approach: Sort by model_run_date desc, drop duplicates on target_date
+            # Keep latest prediction per target date (using target_date for dedupe logic works, or date)
             merged = merged.sort_values('model_run_date', ascending=False).drop_duplicates('target_date')
             
             # Calculate Error
             merged['difference'] = merged['predicted_throughput'] - merged['throughput']
             merged['error_rate'] = (merged['difference'].abs() / merged['throughput']) * 100
             
-            # [FIXES] Drop redundant 'date' from actuals before rename to avoid collision
-            if 'date' in merged.columns:
-                merged = merged.drop(columns=['date'])
-
-            # Rename for frontend
+            # Formatting
+            # We already have 'date' from df_actual. We don't need to rename target_date to date.
+            # But we might need to ensure target_date is dropped or just ignored.
             merged = merged.rename(columns={
-                'target_date': 'date',
                 'throughput': 'actual',
                 'predicted_throughput': 'predicted'
             })
             
-            # Sort by date asc (dashboard.js expects old->new to slice last 15)
+            # Select columns explicitly
+            merged = merged[['date', 'actual', 'predicted', 'difference', 'error_rate']]
+            
             merged = merged.sort_values('date', ascending=True)
-            
-            count = len(merged)
-            print(f"DEBUG: Final Validation Count = {count}")
-            
-            # [CRITICAL FIX] Handle NaN/Inf for JSON compliance
-            # Replace Inf with 0, NaN with 0 (or None)
             merged = merged.fillna(0)
             
-            # [关键逻辑] 只返回前端需要的字段
             result['validation'] = merged[['date', 'actual', 'predicted', 'difference', 'error_rate']].to_dict(orient='records')
-            
-            # [NEW] Return full history for charting (The Orange Line of Truth)
-            # Logic: For each target_date, keep the latest prediction that was made
-            # We already have df_hist. 
-            # 1. Convert target_date to string if not already
-            # [FIX] Handle mixed formats (YYYY-MM-DD vs YYYY-MM-DD HH:MM:SS)
-            df_hist['target_date'] = pd.to_datetime(df_hist['target_date'], format='mixed').dt.strftime('%Y-%m-%d')
-            # 2. Sort by model_run_date desc to get latest run first
-            df_hist_sorted = df_hist.sort_values(by=['target_date', 'model_run_date'], ascending=[True, False])
-            # 3. Drop duplicates on target_date, keeping first (which is latest run due to sort? Wait.
-            # actually we want to sort by target_date asc, model_run_date desc.
-            # Then groupby target_date and take head(1)? Or drop_duplicates(subset=['target_date'], keep='first')
-            
-            # Let's do: Sort by model_run_date DESC, so latest run is at top. 
-            # Then drop duplicates on target_date, keep='first'.
-            df_latest_hist = df_hist.sort_values('model_run_date', ascending=False).drop_duplicates('target_date', keep='first')
-            
-            # Sort by target_date ASC for the chart
-            df_latest_hist = df_latest_hist.sort_values('target_date', ascending=True)
-            
-            result['history'] = df_latest_hist[['target_date', 'predicted_throughput']].rename(columns={
-                'target_date': 'date',
-                'predicted_throughput': 'predicted'
-            }).to_dict(orient='records')
-            
         else:
-            print("DEBUG: prediction_history.csv NOT found.")
             result['validation'] = []
-            result['history'] = []
+            
     except Exception as e:
+        print(f"Error in get_predictions (DB Mode): {e}")
+        import traceback
+        traceback.print_exc()
+        result['forecast'] = []
         result['validation'] = []
         result['history'] = []
-        print(f"Error loading validation log: {e}")
         
     return jsonify(result)
 
@@ -175,7 +178,7 @@ def run_prediction():
         # 运行子进程执行训练脚本
         # 注意：此处处理了 Windows 环境下的 GBK 编码问题
         result = subprocess.run(
-            [sys.executable, 'train_xgb.py'], 
+            [sys.executable, '-m', 'src.models.train_xgb'], 
             capture_output=True, 
             text=True,
             encoding='utf-8',
@@ -226,12 +229,12 @@ def update_data():
         print("🔄 开始数据更新流程...")
         
         steps = [
-            {'name': '抓取最新TSA数据', 'cmd': [sys.executable, 'build_tsa_db.py', '--latest'], 'timeout': 30},
+            {'name': '抓取最新TSA数据', 'cmd': [sys.executable, '-m', 'src.etl.build_tsa_db', '--latest'], 'timeout': 30},
             # [NEW] Fetch ONLY recent flight data (Critical for Sniper) with Fail-Fast mode
-            {'name': '同步OpenSky航班数据(最近3天)', 'cmd': [sys.executable, 'fetch_opensky.py', '--recent', '--fail-fast'], 'timeout': 60},
-            {'name': '同步天气特征', 'cmd': [sys.executable, 'get_weather_features.py'], 'timeout': 45},
-            {'name': '合并数据库', 'cmd': [sys.executable, 'merge_db.py'], 'timeout': 30},
-            {'name': '全量模型重训(Persistence)', 'cmd': [sys.executable, 'train_xgb.py'], 'timeout': 120}
+            {'name': '同步OpenSky航班数据(最近3天)', 'cmd': [sys.executable, '-m', 'src.etl.fetch_opensky', '--recent', '--fail-fast'], 'timeout': 60},
+            {'name': '同步天气特征', 'cmd': [sys.executable, '-m', 'src.etl.get_weather_features'], 'timeout': 45},
+            {'name': '合并数据库', 'cmd': [sys.executable, '-m', 'src.etl.merge_db'], 'timeout': 30},
+            {'name': '全量模型重训(Persistence)', 'cmd': [sys.executable, '-m', 'src.models.train_xgb'], 'timeout': 120}
         ]
         
         results = []
@@ -280,7 +283,7 @@ def predict_sniper():
         
         # Run script
         result = subprocess.run(
-            [sys.executable, 'predict_sniper.py'],
+            [sys.executable, '-m', 'src.models.predict_sniper'],
             capture_output=True,
             text=True,
             encoding='utf-8', 
@@ -328,7 +331,7 @@ def run_challenger():
         
         # 运行训练脚本
         result = subprocess.run(
-            [sys.executable, 'train_challenger.py'],
+            [sys.executable, '-m', 'src.models.train_challenger'],
             capture_output=True,
             text=True,
             encoding='utf-8',

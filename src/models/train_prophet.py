@@ -2,9 +2,17 @@ import pandas as pd
 from prophet import Prophet
 import matplotlib.pyplot as plt
 
-# 1. 加载数据
-print("Loading data from TSA_Final_Analysis.csv...")
-df = pd.read_csv("TSA_Final_Analysis.csv")
+# 1. 加载数据 (From DB)
+print("Loading data from SQLite (traffic_full)...")
+import sqlite3
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from src.config import DB_PATH
+
+conn = sqlite3.connect(DB_PATH)
+df = pd.read_sql("SELECT * FROM traffic_full", conn)
+conn.close()
 
 # 格式转换
 df['ds'] = pd.to_datetime(df['date'])

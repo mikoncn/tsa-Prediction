@@ -12,8 +12,12 @@ import traceback
 import sqlite3
 import holidays
 
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from src.config import DB_PATH
+
 # TRAIN_FILE = os.path.join(os.getcwd(), 'TSA_Final_Analysis.csv') # Legacy
-DB_PATH = os.path.join(os.getcwd(), 'tsa_data.db')
+# DB_PATH = os.path.join(os.getcwd(), 'tsa_data.db')
 
 def load_data_and_split():
     print(f"Loading data from SQLite: {DB_PATH}")
