@@ -47,6 +47,17 @@ function initChart() {
                 pointBackgroundColor: '#fd7e14',
                 fill: false,
                 tension: 0.3
+            }, {
+                // [NEW] Challenger Line
+                label: 'FLAML 挑战者 (Challenger)',
+                data: [],
+                borderColor: '#6f42c1', // Purple
+                backgroundColor: 'rgba(111, 66, 193, 0.1)',
+                borderWidth: 2,
+                pointRadius: 3,
+                borderDash: [2, 2],
+                tension: 0.4,
+                hidden: true // Default hidden
             }]
         },
         options: {
@@ -54,7 +65,8 @@ function initChart() {
             maintainAspectRatio: false,
             interaction: {
                 intersect: false,
-                mode: 'index',
+                mode: 'nearest', // 关键修改：从 index 改为 nearest，这样鼠标离得近就能触发，不用完全对齐
+                axis: 'x' 
             },
             onClick: (e) => {
                 const points = chart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, true);
@@ -537,3 +549,72 @@ async function runSniperModel() {
         btn.style.backgroundColor = '#dc3545';
     }
 }
+
+// [NEW] Run FLAML Challenger
+window.runChallenger = async function() {
+    const btn = document.getElementById('btnChallenger');
+    const originalText = btn.innerText;
+    
+    // UI Loading State
+    btn.disabled = true;
+    btn.innerText = '⏳ 深度训练中 (约3分钟)...';
+    btn.style.backgroundColor = '#5a32a3';
+    
+    try {
+        const response = await fetch('/api/run_challenger', { method: 'POST' });
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            const forecast = result.data.forecast;
+            const mape = (result.data.mape * 100).toFixed(2);
+            const modelName = result.data.model.split('(')[0]; // Simplify name
+            
+            alert(`✅ 挑战成功！\n\n🏆 最佳模型: ${modelName}\n📉 验证误差: ${mape}%\n\n紫色曲线已绘制到图表中。`);
+            
+            // 绘制到图表 (Dataset Index 2)
+            // 映射字段：如果是 forecast 模式，字段是 'forecast'；如果是 backtest，可能是 'predicted'
+            // 后端统一为 'forecast'
+            const challengerData = forecast.map(item => ({
+                x: item.date,
+                y: item.forecast || item.predicted // Fallback
+            }));
+            
+            if (chart.data.datasets.length > 2) {
+                const meta = chart.data.datasets[2];
+                meta.data = challengerData;
+                meta.hidden = false;
+                
+                // [FIX INTERACTION] Ensure it's interactive
+                // Force dataset specific interactions if needed, but 'index' mode should work.
+                // Reset to default style if previously hidden
+                
+                // [CRITICAL FIX] Extend X-axis to show future predictions
+                const lastHistDate = new Date(chart.options.scales.x.max || Date.now());
+                const lastForecastDate = new Date(challengerData[challengerData.length-1].x);
+                
+                if (lastForecastDate > lastHistDate) {
+                     // Extend view to fit forecast + 1 day padding
+                     const newMax = lastForecastDate.getTime() + (24 * 60 * 60 * 1000);
+                     chart.options.scales.x.max = newMax;
+                     
+                     // Also update zoom limit
+                     chart.options.plugins.zoom.limits.x.max = newMax + (7 * 24 * 60 * 60 * 1000);
+                }
+
+                chart.update();
+            } else {
+                 console.error("Chart dataset index 2 not found");
+            }
+            
+        } else {
+            alert('❌ 挑战者失败: ' + result.message);
+        }
+    } catch (error) {
+        console.error('Challenger Error:', error);
+        alert('系统错误: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerText = originalText;
+        btn.style.backgroundColor = '#6f42c1';
+    }
+};

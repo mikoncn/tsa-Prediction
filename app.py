@@ -297,6 +297,12 @@ def predict_sniper():
                 # Assume last line is JSON
                 json_str = lines[-1]
                 data = json.loads(json_str)
+                
+                # [FIX] Check for internal script error
+                if "error" in data:
+                     print(f"❌ Sniper Internal Error: {data['error']}")
+                     return jsonify({'status': 'error', 'message': data['error']}), 500
+                     
                 print(f"✅ Sniper Hit: {data}")
                 return jsonify({'status': 'success', 'data': data})
             except Exception as parse_err:
@@ -308,6 +314,49 @@ def predict_sniper():
             
     except Exception as e:
         print(f"❌ Sniper Error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/run_challenger', methods=['POST'])
+def run_challenger():
+    """触发 FLAML 深度分析 (Challenger Model)"""
+    try:
+        import subprocess
+        import sys
+        import json
+        
+        print("🟣 启动 FLAML 挑战者训练任务...")
+        
+        # 运行训练脚本
+        result = subprocess.run(
+            [sys.executable, 'train_challenger.py'],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=600 # 10分钟超时
+        )
+        
+        if result.returncode != 0:
+            return jsonify({
+                'status': 'error', 
+                'message': f"Training failed: {result.stderr}"
+            }), 500
+            
+        # 读取生成的摘要
+        if os.path.exists("challenger_summary.json"):
+            with open("challenger_summary.json", 'r') as f:
+                summary = json.load(f)
+            return jsonify({
+                'status': 'success',
+                'data': summary
+            })
+        else:
+             return jsonify({
+                'status': 'error', 
+                'message': "Model trained but no summary file found."
+            }), 500
+            
+    except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':

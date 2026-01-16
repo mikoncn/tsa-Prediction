@@ -2,89 +2,97 @@
 
 > **Governance by Data, For the Prediction.**
 
-本项目是一套集**自动化数据采集**、**交互式可视化**与**高维度特征工程**于一体的航空客流分析系统。它专为捕捉“黑天鹅”事件（如极端天气、突发疫情）及复杂节假日效应而设计，为 Prophet/XGBoost 等预测模型提供高质量的“燃料”。
+本项目是一套集**自动化数据采集**、**交互式可视化**与**高维度特征工程**于一体的航空客流分析系统。它专为捕捉“黑天鹅”事件（如极端天气、突发疫情）及复杂节假日效应而设计。目前已进化为 **"三位一体" (Trinity)** 防御体系。
 
 ---
 
-## 🏗️ 架构全景 (v2.0 Logic)
+## 🛡️ 三位一体防御体系 (The Trinity)
+
+为了确保预测的绝对可靠性，我们设计了三道防线：
+
+### 1. 🔴 狙击模型 (The Sniper)
+
+- **定位**：**当下盲区补全 (T-0 Nowcasting)**
+- **痛点**：TSA 官方数据滞后 24 小时发布。
+- **原理**：利用 OpenSky 实时的“航班起降数据” + 昨日客流，推算**此时此刻**的客流量。
+- **触发**：红色按钮 `🎯 狙击模型`。
+
+### 2. 🟠 主力模型 (The Main Core)
+
+- **定位**：**未来趋势预测 (T+1~7 Forecasting)**
+- **核心**：**XGBoost Regressor**。
+- **原理**：基于历史规律、季节性、天气预报、节假日逻辑，生成稳健的未来 7 天预测。
+- **触发**：绿色按钮 `更新数据` 自动运行，或蓝色按钮 `🚀 立即预测`。
+
+### 3. 🟣 挑战者模型 (The Challenger)
+
+- **定位**：**独立审计员 (Independent Auditor)**
+- **核心**：**LightGBM** (与主力模型不同构)。
+- **原理**：**不信任缓存**。每次点击时，直接从数据库读取最新鲜的数据，现场重新训练。用作“二审”来验证主力模型的准确性。
+- **触发**：紫色按钮 `🟣 深度对决`。
+
+---
+
+## 🏗️ 架构全景 (v3.0 Logic)
 
 系统采用 **ETL + 混合模型 (Hybrid Model)** 架构：
 
 ```mermaid
 graph LR
-    A[TSA 官网] -->|Scraper| B(SQLite 主数据库)
-    C[Open-Meteo 气象局] -->|API| D(气象特征表)
-    E[Holidays 库] -->|Advanced Logic| F(节日特征: 正日/窗口)
-    B --> G{Merge Engine}
-    D --> G
-    F --> G
-    G -->|Generate| H[TSA_Final_Analysis.csv]
+    A[TSA 官网] -->|Scraper| B(SQLite: traffic_full)
+    C[OpenSky 航空局] -->|Live API| D(SQLite: flight_stats)
+    E[Open-Meteo 气象局] -->|API| B
 
-    H --> I[🔵 Prophet (趋势模型)]
-    H --> J[🔴 XGBoost (高精模型)]
+    B & D --> F{AI Inference Engine}
 
-    J -->|Forecast| K[未来 7 日预测]
-    J -->|Validation| L[历史回测报告]
+    F --> G[🔴 Sniper (T-0)]
+    F --> H[🟠 XGBoost (T+1~7)]
+    F --> I[🟣 Challenger (Audit)]
 
-    I & J --> M[Dashboard (Web)]
+    G & H & I --> J[Dashboard (Web)]
 ```
 
-## 🧩 核心算法详解 (The Secret Sauce)
+## 🧩 核心黑科技 (Secret Sauce)
 
-### 1. 节日双重逻辑 (Dual Holiday Feature)
+### 1. 动态节日修正 (Dynamic Holiday Logic)
 
-为了解决模型在节日当天的预测偏差，我们引入了高级特征：
+- **Is_Holiday_Exact_Day (正日)**: 标记感恩节、圣诞节当天，模型学会了**"正日不出门"**（负系数）。
+- **Is_Holiday_Travel_Window (窗口期)**: 标记节日前后 7 天，模型学会了**"节前大迁徙"**（正系数）。
+- **动态计算**: 抛弃静态 CSV，使用 Python `holidays` 库动态生成未来节日特征，确保永远不会“漏过”任何一个假期。
 
-- **Is_Holiday_Exact_Day (正日)**: 标记感恩节、圣诞节当天。模型学会了**"正日不出门"**的抑制逻辑（系数为负）。
-- **Is_Holiday_Travel_Window (窗口期)**: 标记节日前后 7 天。模型学会了**"节前大迁徙"**的激增逻辑（系数为正）。
+### 2. 航班流关联 (Flight Volume Correlation)
 
-### 2. 多枢纽熔断气象模型 (Hub Meltdown Model)
-
-监测 5 大枢纽（ATL, ORD, DFW, DEN, JFK）的暴雪、强风、暴雨。若 3 个以上枢纽同时恶劣天气，触发**"系统熔断"**信号。
+- 引入 **OpenSky Network** 实时数据。发现“航班量”与“客流量”存在 0.85+ 的强相关性，并将其作为强特征引入 Sniper 和 Challenger 模型。
 
 ---
 
 ## 🛠️ 项目结构
 
 - `update_data.bat`: **一键司令部**. 串联爬虫、天气、融合、训练全流程。
-- `merge_db.py`: **核心融合器**. 生成 Feature A/B，处理 Holiday/Weather/Lags。
-- `train_xgb.py`: **XGBoost 引擎**. 负责高精度预测 + 2025 全年回测。
-- `train_model.py`: **Prophet 引擎**. 负责长期趋势分析。
-- `app.py`: **Web 后端**.
-- `backtest_2025_full.py`: **压力测试**. 盲测 2025 全年数据。
-
-**已移除**: `add_features.py`, `export_table.py` (功能已集成至 Merge DB)。
+- `fetch_opensky.py`: **空中雷达**. 抓取全球 Top 10 机场实时航班数据。
+- `predict_sniper.py`: **狙击手内核**. 负责 T-0 实时预测。
+- `train_xgb.py`: **主力引擎**. 负责 T+1~7 预测。
+- `train_challenger.py`: **挑战者引擎**. 负责实时审计预测。
+- `merge_db.py`: **数据熔炉**. 将多源数据清洗并注入 `tsa_data.db`。
+- `app.py`: **Web 后端 (Flask)**.
 
 ## 🚀 快速开始
-
-**日常更新 (Daily Routine)**:
-
-只需双击运行：
-
-```bash
-./update_data.bat
-```
-
-它会自动：
-
-1. 抓取最新 TSA 数据
-2. 更新天气
-3. 重训模型
-4. 生成未来 7 天预测 (`xgb_forecast.csv`)
 
 **启动看板**:
 
 ```bash
 python app.py
-# 访问 http://127.0.0.1:5000
+# 访问 http://127.0.0.1:5001
+# (注意：端口已变更为 5001)
 ```
 
-## 🔮 路线图 (Roadmap)
+**日常更新**:
 
-- [x] **超级碗 (Super Bowl)**: 算法已实装。
-- [x] **模型接入**: Prophet + XGBoost 双核驱动。
-- [x] **节日逻辑升级**: 正日 vs 窗口期分离。
-- [x] **前端升级**: 支持自由日期选择 & 准确率回测面板。
+点击看板右上角的 **"🟢 更新数据"** 按钮，或者运行：
+
+```bash
+./update_data.bat
+```
 
 ---
 
