@@ -19,7 +19,7 @@ CSV_PATH = 'TSA_Final_Analysis.csv'
 
 def get_db_connection():
     """获取数据库连接"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -46,10 +46,8 @@ def load_data():
     # 3. 数据合并
     df = df.merge(df_flights, left_on='ds', right_on='date', how='left')
     
-    # 补全空缺：对于没有飞行记录的更早历史，使用近期平均值填充，防止模型对 0 产生偏差
-    avg_flights = df[df['total_flights'] > 0]['total_flights'].mean()
-    if pd.isna(avg_flights): avg_flights = 0
-    df['total_flights'] = df['total_flights'].fillna(avg_flights)
+    # [OPTIMIZATION] Forward Fill for missing flight data
+    df['total_flights'] = df['total_flights'].fillna(method='ffill').fillna(0)
     
     return df
 
@@ -91,17 +89,32 @@ def train_and_predict(target_date_str):
     X_train = train_df[features]
     y_train = train_df['y']
     
-    # 配置 XGBoost 快速回归器
-    model = XGBRegressor(
-        n_estimators=500, 
-        learning_rate=0.05,
-        max_depth=5,
-        n_jobs=-1,
-        random_state=42
-    )
-    model.fit(X_train, y_train)
+    # [NEW] Model Persistence Logic
+    model_file = "sniper_model.json"
+    is_loaded = False
     
-    # 准备目标日期的特征向量
+    # Try to load model
+    try:
+        model = XGBRegressor()
+        model.load_model(model_file)
+        # Verify if model is valid (optional print)
+        # print("   [Sniper] Loaded pre-trained model.")
+        is_loaded = True
+    except Exception as e:
+        print(f"   [Sniper] Persistence Load Failed ({e}). Falling back to live training.")
+        
+    # Fallback: Train if load failed
+    if not is_loaded:
+        model = XGBRegressor(
+            n_estimators=500, 
+            learning_rate=0.05,
+            max_depth=5,
+            n_jobs=-1,
+            random_state=42
+        )
+        model.fit(X_train, y_train)
+    
+    # Prepare Target Input
     target_date = pd.to_datetime(target_date_str)
     
     # 从主数据集中提取静态特征（天气、节日等）

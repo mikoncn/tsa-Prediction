@@ -227,8 +227,11 @@ def update_data():
         
         steps = [
             {'name': '抓取最新TSA数据', 'cmd': [sys.executable, 'build_tsa_db.py', '--latest'], 'timeout': 30},
+            # [NEW] Fetch ONLY recent flight data (Critical for Sniper) with Fail-Fast mode
+            {'name': '同步OpenSky航班数据(最近3天)', 'cmd': [sys.executable, 'fetch_opensky.py', '--recent', '--fail-fast'], 'timeout': 60},
             {'name': '同步天气特征', 'cmd': [sys.executable, 'get_weather_features.py'], 'timeout': 45},
-            {'name': '合并数据库', 'cmd': [sys.executable, 'merge_db.py'], 'timeout': 30}
+            {'name': '合并数据库', 'cmd': [sys.executable, 'merge_db.py'], 'timeout': 30},
+            {'name': '全量模型重训(Persistence)', 'cmd': [sys.executable, 'train_xgb.py'], 'timeout': 120}
         ]
         
         results = []

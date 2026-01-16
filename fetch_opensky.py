@@ -117,17 +117,21 @@ def fetch_arrival_count(date_str, icao):
         
         if resp.status_code == 200:
             flights = resp.json()
-            # 记录成功抓取的航班采样，便于日志追踪
             if len(flights) > 0:
                 print(f"   [成功] 抓取到 {icao} 的 {len(flights)} 架次航班。采样: {flights[0].get('callsign', 'N/A')}")
             else:
                 print(f"   [提醒] {icao} 在 {date_str} 抓取结果为 0。")
             return len(flights)
         elif resp.status_code == 429:
-            # 关键风控逻辑：如果触碰 429 频率限制，脚本将进入 60 秒硬强制休眠
-            print("   [警告] 触发 429 访问受限（频率/额度）。进入 60 秒强制冷却期...")
+            print("   [警告] 触发 429 访问受限（频率/额度）。")
+            # [NEW] Failsafe for UI: If running from Dashboard, don't sleep forever
+            if '--fail-fast' in sys.argv:
+                print("   [UI模式] 快速失败，跳过等待。")
+                return None
+                
+            print("   正在进入 60 秒强制冷却期...")
             time.sleep(60)
-            return None # 标记为失败，由外层逻辑决定是否重试
+            return None 
         elif resp.status_code == 401:
              print("   [错误] 401 认证失效，Token 可能已过期。")
              return None
@@ -144,7 +148,7 @@ def save_to_db(data_list):
     if not data_list: return
     
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30)
         # INSERT OR REPLACE 确保了如果重复运行脚本，数据会被最新修正的结果覆盖（如时区修正后的数据）
         conn.executemany('''
             INSERT OR REPLACE INTO flight_stats (date, airport, arrival_count)
@@ -159,7 +163,7 @@ def save_to_db(data_list):
 
 def get_db_connection():
     """获取数据库连接"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -224,11 +228,25 @@ def backfill(days_to_backfill=45):
     print("=== 历史回溯任务结束 ===")
 
 if __name__ == "__main__":
-    # 支持命令行参数执行。如: python fetch_opensky.py 60 代表补全过去 60 天。
-    days = 45 
-    if len(sys.argv) > 1:
+    # 命令行参数逻辑优化
+    # 模式 1: python fetch_opensky.py 60  -> 深度回溯过去 60 天 (Daemon 模式)
+    # 模式 2: python fetch_opensky.py --recent -> 仅确保最近 3 天数据完整 (UI 模式)
+    
+    import sys
+    
+    if '--recent' in sys.argv:
+        print("=== [UI模式] 快速同步最近 3 天数据 ===")
+        # 强制检查过去 3 天 (今天, 昨天, 前天)
+        # 确保 T-1 和 T-2 有数据，这是 Sniper 模型最需要的
+        backfill(days_to_backfill=3)
+        
+    elif len(sys.argv) > 1:
+        # 数字模式，回溯指定天数
         try:
             days = int(sys.argv[1])
-        except: pass
-        
-    backfill(days)
+            backfill(days)
+        except:
+            backfill(45) # Default
+    else:
+        # 默认行为
+        backfill(45)

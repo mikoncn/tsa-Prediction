@@ -18,7 +18,7 @@ df = df.sort_values('ds').reset_index(drop=True)
 try:
     print("Loading Flight Stats from SQLite...")
     import sqlite3
-    conn_flights = sqlite3.connect("tsa_data.db")
+    conn_flights = sqlite3.connect("tsa_data.db", timeout=30)
     df_flights = pd.read_sql("SELECT date, SUM(arrival_count) as total_flights FROM flight_stats GROUP BY date", conn_flights)
     conn_flights.close()
     
@@ -27,11 +27,11 @@ try:
     df.drop(columns=['date_y'], inplace=True, errors='ignore') # cleanup
     df.rename(columns={'date_x': 'date'}, inplace=True, errors='ignore')
     
-    # Fill missing flight data (e.g. before backfill) with 0 or mean? 
-    # Mean is safer to avoid skewing model with 0s
-    avg_flights = df[df['total_flights'] > 0]['total_flights'].mean()
-    if pd.isna(avg_flights): avg_flights = 0
-    df['total_flights'] = df['total_flights'].fillna(avg_flights)
+    # [OPTIMIZATION] Use Forward Fill (Forward Persistence) instead of Mean
+    # Logic: If data is missing (e.g. API outage), assume flights are same as yesterday.
+    df['total_flights'] = df['total_flights'].fillna(method='ffill')
+    # If beginning is still NaN (no yesterday), fallback to 0
+    df['total_flights'] = df['total_flights'].fillna(0)
     
     print(f"   Merged {len(df_flights)} flight records.")
 except Exception as e:
@@ -212,6 +212,11 @@ model_full = XGBRegressor(
 )
 model_full.fit(X_full, y_full)
 print(f"   Full Model Trained on {len(full_train_df)} rows.")
+    
+# [NEW] Save Model for Sniper (Persistence)
+print("   [PERSISTENCE] Saving model to sniper_model.json...")
+model_full.save_model("sniper_model.json")
+print("   [PERSISTENCE] Model saved successfully.")
 
 # 关键修正: 找到最后一条"真实有数据"的日期 (忽略未来骨架)
 last_actual_row = df[df['y'].notnull()].iloc[-1]
