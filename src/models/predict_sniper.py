@@ -8,6 +8,9 @@ import sqlite3
 import warnings
 import sys
 import os
+import json
+from datetime import datetime, timedelta
+from xgboost import XGBRegressor
 
 # Add src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -75,13 +78,86 @@ def train_and_predict(target_date_str):
     
     # 时间对齐特征：获取过去 7 天和 364 天（去年同日）的滞后值
     df['lag_7'] = df['throughput_lag_7'] 
+    
+    # [NEW] Hybrid Lag Strategy
+    import numpy as np
     df['lag_364'] = df['y'].shift(364).fillna(method='bfill')
+    df['lag_365'] = df['y'].shift(365).fillna(method='bfill')
+    
+    # Simple Fixed Holiday Mask (Vectorized)
+    mask_fixed = df['ds'].apply(lambda d: 
+        (d.month == 1 and d.day == 1) or
+        (d.month == 7 and d.day == 4) or
+        (d.month == 11 and d.day == 11) or
+        (d.month == 12 and d.day == 25)
+    )
+    df['lag_364'] = np.where(mask_fixed, df['lag_365'], df['lag_364'])
+    df.drop(columns=['lag_365'], inplace=True)
+    
+    # [NEW] Weather Lag 1
+    df['weather_lag_1'] = df['daily_weather_index'].shift(1).fillna(0) if 'daily_weather_index' in df.columns else np.zeros(len(df))
+    # Wait, 'daily_weather_index' might not be in df? load_data merges flight_stats but maybe not weather table?
+    # Let's check load_data. It only fetches 'traffic_full' and 'flight_stats'.
+    # traffic_full usually has 'weather_index'. 
+    df['weather_lag_1'] = df['weather_index'].shift(1).fillna(0)
+
+    # [NEW] Long Weekend
+    df['is_long_weekend'] = 0
+    mask_long = (df['is_holiday'] == 1) & (df['day_of_week'].isin([0, 4]))
+    df.loc[mask_long, 'is_long_weekend'] = 1
+
+    # [NEW] Whitelist & Clamping Logic for Historical Data
+    target_holidays = [
+        "New Year's Day", 
+        "Martin Luther King Jr. Day", 
+        "Washington's Birthday", # Presidents' Day
+        "Memorial Day", 
+        "Juneteenth National Independence Day", 
+        "Independence Day", 
+        "Labor Day", 
+        "Columbus Day", 
+        "Veterans Day", 
+        "Thanksgiving", 
+        "Christmas Day"
+    ]
+    
+    import holidays
+    us_holidays = holidays.US(years=range(2019, 2030))
+    major_holiday_dates = []
+    
+    # 1. Standard
+    for date, name in us_holidays.items():
+        if any(target in name for target in target_holidays):
+            major_holiday_dates.append(pd.Timestamp(date))
+
+    # 2. Good Friday
+    from dateutil.easter import easter
+    for y in range(2019, 2030):
+        easter_date = easter(y)
+        good_friday = pd.Timestamp(easter_date) - pd.Timedelta(days=2)
+        major_holiday_dates.append(good_friday)
+
+    df['days_to_nearest_holiday'] = 15 # Default
+    for idx, row in df.iterrows():
+        d = row['ds']
+        min_dist = 999 
+        best_dist = 15
+        for h_date in major_holiday_dates:
+            diff_days = (d - h_date).days
+            if abs(diff_days) < abs(min_dist):
+                min_dist = diff_days
+                best_dist = diff_days
+        
+        if best_dist > 14: best_dist = 15
+        elif best_dist < -14: best_dist = -15
+        df.at[idx, 'days_to_nearest_holiday'] = best_dist
     
     # 定义模型要用到的全部列（必须与训练和预测完全一致）
     features = [
         'day_of_week', 'month', 'is_weekend', 'flight_current', 
         'weather_index', 'is_holiday', 'is_spring_break',
-        'is_holiday_exact_day', 'is_holiday_travel_window',
+        'is_holiday_exact_day', 'days_to_nearest_holiday',
+        'weather_lag_1', 'is_long_weekend',
         'lag_7', 'lag_364'
     ]
     
@@ -136,10 +212,88 @@ def train_and_predict(target_date_str):
         is_h = target_data.get('is_holiday', 0)
         is_sb = target_data.get('is_spring_break', 0)
         is_h_exact = target_data.get('is_holiday_exact_day', 0)
-        is_h_window = target_data.get('is_holiday_travel_window', 0)
         lag_7_val = target_data.get('throughput_lag_7', 0)
-        # 去年同日滞后项需特殊回溯寻找
         lag_364_val = df[df['ds'] == (target_date - timedelta(days=364))]['y'].values[0] if not df[df['ds'] == (target_date - timedelta(days=364))].empty else 0
+
+        # [NEW] Real-time Day Distance Calculation
+        # Whitelist
+        target_holidays = [
+            "New Year's Day", 
+            "Martin Luther King Jr. Day", 
+            "Washington's Birthday", # Presidents' Day
+            "Memorial Day", 
+            "Juneteenth National Independence Day", 
+            "Independence Day", 
+            "Labor Day", 
+            "Columbus Day", 
+            "Veterans Day", 
+            "Thanksgiving", 
+            "Christmas Day"
+        ]
+        
+        # Get holidays for current year + next year (to handle Dec-Jan transitions)
+        import holidays
+        cur_year = target_date.year
+        # [FIX] Add previous year too for Dec-Jan boundary lookback
+        us_holidays = holidays.US(years=[cur_year-1, cur_year, cur_year + 1]) 
+        
+        major_holiday_dates = []
+        for date, name in us_holidays.items():
+            if any(target in name for target in target_holidays):
+                major_holiday_dates.append(pd.Timestamp(date))
+        
+        # Add Good Friday
+        from dateutil.easter import easter
+        for y in [cur_year-1, cur_year, cur_year+1]:
+            easter_date = easter(y)
+            good_friday = pd.Timestamp(easter_date) - pd.Timedelta(days=2)
+            major_holiday_dates.append(good_friday)
+
+        min_dist = 999 
+        best_dist = 15 # Default clamped
+        
+        for h_date in major_holiday_dates:
+            diff_days = (target_date - h_date).days
+            if abs(diff_days) < abs(min_dist):
+                min_dist = diff_days
+                best_dist = diff_days
+        
+        # Clamping
+        if best_dist > 14: best_dist = 15
+        elif best_dist < -14: best_dist = -15
+        
+        days_to_holiday_val = best_dist
+        
+        # [NEW] Real-time Weather Lag 1 (Safety Fallback)
+        # Fetch yesterday's weather from DB
+        try:
+            yesterday_str = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
+            conn = get_db_connection()
+            # Assuming table is daily_weather_index? Or traffic_full?
+            # traffic_full has history. daily_weather_index has raw.
+            # Let's query traffic_full first for stability, or daily_weather_index if recent.
+            # Best source: daily_weather_index
+            row_w = conn.execute("SELECT index_value FROM daily_weather_index WHERE date = ?", (yesterday_str,)).fetchone()
+            conn.close()
+            
+            if row_w and row_w[0] is not None:
+                weather_lag_val = row_w[0]
+            else:
+                # [SAFETY] Data missing -> Assume clean slate (0) to avoid crash
+                print(f"   [Warning] Yesterday's weather missing for {yesterday_str}. Using 0.")
+                weather_lag_val = 0
+        except Exception as e:
+             print(f"   [Error] Failed to fetch weather lag: {e}. Using 0.")
+             weather_lag_val = 0
+             
+        # [NEW] Real-time Long Weekend
+        is_long_val = 0
+        # Re-calc is_holiday for target? We have is_h from 'target_data' lookup usually.
+        # But wait, target_data comes from df which is history. 
+        # If target is future, we need to know if it IS a holiday.
+        # We did lookup 'is_holiday' (is_h) earlier from target_row.
+        if is_h == 1 and target_date.dayofweek in [0, 4]:
+            is_long_val = 1
 
     # 生成基础日历特征
     day_of_week = target_date.dayofweek
@@ -199,7 +353,7 @@ def train_and_predict(target_date_str):
         row_y = conn.execute("SELECT SUM(arrival_count) FROM flight_stats WHERE date = ?", (yesterday_str,)).fetchone()
         conn.close()
         # 如果昨天有数，用昨天的；否则用历史平均
-        flight_volume = row_y[0] if (row_y and row_y[0] > 500) else avg_flights
+        flight_volume = row_y[0] if (row_y and row_y[0] is not None and row_y[0] > 500) else avg_flights
         is_fallback = True
         
     # 打包输入特征向量
@@ -212,7 +366,9 @@ def train_and_predict(target_date_str):
         'is_holiday': is_h,
         'is_spring_break': is_sb,
         'is_holiday_exact_day': is_h_exact,
-        'is_holiday_travel_window': is_h_window,
+        'days_to_nearest_holiday': days_to_holiday_val,
+        'weather_lag_1': weather_lag_val,
+        'is_long_weekend': is_long_val,
         'lag_7': lag_7_val,
         'lag_364': lag_364_val
     }])

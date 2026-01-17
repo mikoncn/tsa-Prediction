@@ -105,6 +105,6 @@
     </div>
 
     <!-- 引入外部逻辑 -->
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ range(1, 10000) | random }}"></script>
 </body>
 </html>

@@ -72,7 +72,8 @@ def get_predictions():
         # 1. 加载未来预测 (Forecast) - From SQLite 'prediction_history'
         # Logic: Get predictions for Date >= Today
         query_forecast = """
-            SELECT target_date, predicted_throughput, model_run_date 
+            SELECT target_date, predicted_throughput, model_run_date, 
+                   weather_index, is_holiday, flight_volume
             FROM prediction_history 
             WHERE target_date >= ?
         """
@@ -85,8 +86,10 @@ def get_predictions():
             df_forecast = df_preds.sort_values('model_run_date', ascending=False).drop_duplicates('target_date')
             # Sort by date ASC for chart
             df_forecast = df_forecast.sort_values('target_date')
+            # Fill NaNs for display
+            df_forecast[['weather_index', 'is_holiday', 'flight_volume']] = df_forecast[['weather_index', 'is_holiday', 'flight_volume']].fillna(0)
             
-            result['forecast'] = df_forecast[['target_date', 'predicted_throughput']].rename(columns={
+            result['forecast'] = df_forecast[['target_date', 'predicted_throughput', 'weather_index', 'is_holiday', 'flight_volume']].rename(columns={
                 'target_date': 'ds',
                 'predicted_throughput': 'predicted_throughput'
             }).to_dict(orient='records')
@@ -95,7 +98,12 @@ def get_predictions():
 
         # 2. 加载历史验证 (Validation) - From SQLite 'prediction_history' & 'traffic_full'
         # Query History (Past predictions)
-        query_hist = "SELECT target_date, predicted_throughput, model_run_date FROM prediction_history WHERE target_date < ?"
+        query_hist = """
+            SELECT target_date, predicted_throughput, model_run_date, 
+                   weather_index, is_holiday, flight_volume
+            FROM prediction_history 
+            WHERE target_date < ?
+        """
         df_hist = pd.read_sql(query_hist, conn, params=(now_str,))
         
         # [FIX] Generate 'History' (Orange Line) separately from Validation
@@ -107,8 +115,10 @@ def get_predictions():
             df_hist_clean = df_hist.sort_values('model_run_date', ascending=False).drop_duplicates('target_date')
             # 3. Sort for chart
             df_hist_clean = df_hist_clean.sort_values('target_date')
+            # Fill NaNs
+            df_hist_clean[['weather_index', 'is_holiday', 'flight_volume']] = df_hist_clean[['weather_index', 'is_holiday', 'flight_volume']].fillna(0)
             
-            result['history'] = df_hist_clean[['target_date', 'predicted_throughput']].rename(columns={
+            result['history'] = df_hist_clean[['target_date', 'predicted_throughput', 'weather_index', 'is_holiday', 'flight_volume']].rename(columns={
                 'target_date': 'date',
                 'predicted_throughput': 'predicted'
             }).to_dict(orient='records')
@@ -230,8 +240,6 @@ def update_data():
         
         steps = [
             {'name': '抓取最新TSA数据', 'cmd': [sys.executable, '-m', 'src.etl.build_tsa_db', '--latest'], 'timeout': 30},
-            # [NEW] Fetch ONLY recent flight data (Critical for Sniper) with Fail-Fast mode
-            {'name': '同步OpenSky航班数据(最近3天)', 'cmd': [sys.executable, '-m', 'src.etl.fetch_opensky', '--recent', '--fail-fast'], 'timeout': 60},
             {'name': '同步天气特征', 'cmd': [sys.executable, '-m', 'src.etl.get_weather_features'], 'timeout': 45},
             {'name': '合并数据库', 'cmd': [sys.executable, '-m', 'src.etl.merge_db'], 'timeout': 30},
             {'name': '全量模型重训(Persistence)', 'cmd': [sys.executable, '-m', 'src.models.train_xgb'], 'timeout': 120}

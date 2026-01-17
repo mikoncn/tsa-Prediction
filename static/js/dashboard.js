@@ -26,16 +26,9 @@ function initChart() {
                     if (w >= 15) return '#fd7e14'; // 恶劣天气(橙)
                     return '#007bff';
                 },
-                pointRadius: function(context) {
-                    const idx = context.dataIndex;
-                    const item = context.dataset.data[idx];
-                    if (!item || item.y === null) return 0;
-                    const w = item.weather_index;
-                    if (w >= 30) return 6;
-                    if (w >= 15) return 4;
-                    return 2;
-                },
-                pointHoverRadius: 8
+                // [FIX] User requested strict hover (radius 1-3)
+                pointRadius: 3, 
+                pointHoverRadius: 5,
             }, {
                 label: 'AI 预测',
                 data: [],
@@ -43,7 +36,8 @@ function initChart() {
                 backgroundColor: 'rgba(253, 126, 20, 0.1)',
                 borderWidth: 2,
                 borderDash: [5, 5],
-                pointRadius: 4,
+                pointRadius: 3, 
+                pointHoverRadius: 5,
                 pointBackgroundColor: '#fd7e14',
                 fill: false,
                 tension: 0.3
@@ -64,9 +58,9 @@ function initChart() {
             responsive: true,
             maintainAspectRatio: false,
             interaction: {
-                intersect: false,
-                mode: 'nearest', // 关键修改：从 index 改为 nearest，这样鼠标离得近就能触发，不用完全对齐
-                axis: 'x' 
+                mode: 'nearest',       // [FIX] Switch back to nearest point only
+                intersect: true,       // [FIX] Require exact intersection (hovering over the point)
+                axis: 'xy'             // [FIX] Consider both axes for distance
             },
             onClick: (e) => {
                 const points = chart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, true);
@@ -125,15 +119,27 @@ function initChart() {
                         afterLabel: function(context) {
                             const item = context.raw;
                             let lines = [];
+                            
+                            // 1. Holiday Factor
                             if (item.holiday_name) {
                                 lines.push(' 🎉 节日: ' + item.holiday_name);
+                            } else if (item.is_holiday === 1) {
+                                lines.push(' 🎉 节日因子: 命中');
                             }
+                            
+                            // 2. Weather Factor
                             if (item.weather_index > 0) {
                                 let weatherInfo = ` ⛈️ 气象指数: ${item.weather_index}`;
                                 if (item.weather_index >= 30) weatherInfo += ' (⚠️ 系统熔断)';
                                 else if (item.weather_index >= 15) weatherInfo += ' (⚠️ 恶劣天气)';
                                 lines.push(weatherInfo);
                             }
+                            
+                            // 3. Flight Volume Factor (New)
+                            if (item.flight_volume > 0) {
+                                lines.push(` ✈️ 航班因子: ${item.flight_volume.toLocaleString()} 架次`);
+                            }
+                            
                             return lines;
                         }
                     }
@@ -199,7 +205,10 @@ async function fetchPredictions() {
             data.history.forEach(item => {
                 combinedPredictions.push({
                     x: item.date,
-                    y: item.predicted
+                    y: item.predicted,
+                    weather_index: item.weather_index,
+                    is_holiday: item.is_holiday,
+                    flight_volume: item.flight_volume
                 });
             });
         }
@@ -211,7 +220,10 @@ async function fetchPredictions() {
                 if (!combinedPredictions.some(p => p.x === item.ds)) {
                     combinedPredictions.push({
                         x: item.ds,
-                        y: item.predicted_throughput
+                        y: item.predicted_throughput,
+                        weather_index: item.weather_index,
+                        is_holiday: item.is_holiday,
+                        flight_volume: item.flight_volume
                     });
                 }
             });
