@@ -39,17 +39,17 @@
 
 ```mermaid
 graph LR
-    A[TSA 官网] -->|Scraper| B(SQLite: traffic_full)
-    C[OpenSky 航空局] -->|Live API| D(SQLite: flight_stats)
-    E[Open-Meteo 气象局] -->|API| B
+    A["TSA 官网"] -->|Scraper| B("SQLite: traffic_full")
+    C["OpenSky 航空局"] -->|Live API| D("SQLite: flight_stats")
+    E["Open-Meteo 气象局"] -->|API| B
 
-    B & D --> F{AI Inference Engine}
+    B & D --> F{"AI Inference Engine"}
 
-    F --> G[🔴 Sniper (T-0)]
-    F --> H[🟠 XGBoost (T+1~7)]
-    F --> I[🟣 Challenger (Audit)]
+    F --> G["🔴 Sniper (T-0)"]
+    F --> H["🟠 XGBoost (T+1~7)"]
+    F --> I["🟣 Challenger (Audit)"]
 
-    G & H & I --> J[Dashboard (Web)]
+    G & H & I --> J["Dashboard (Web)"]
 ```
 
 ## 🧩 核心黑科技 (Secret Sauce)
@@ -68,23 +68,26 @@ graph LR
 
 ## 🛠️ 项目结构
 
+- `start.bat`: **🚀 一键启动**. 自动拉起后台服务并打开浏览器，小白专用。
 - `update_data.bat`: **一键司令部**. 串联爬虫、天气、融合、训练全流程。
 - `fetch_opensky.py`: **空中雷达**. 抓取全球 Top 10 机场实时航班数据。
-- `predict_sniper.py`: **狙击手内核**. 负责 T-0 实时预测。
-- `train_xgb.py`: **主力引擎**. 负责 T+1~7 预测。
+- `predict_sniper.py`: **狙击手内核**. 负责 T-0 实时预测 (独立即时训练引擎)。
+- `train_xgb.py`: **主力引擎**. 负责 T+1~7 预测 (生成 `xgb_forecast_v1.json`)。
 - `train_challenger.py`: **挑战者引擎**. 负责实时审计预测。
 - `merge_db.py`: **数据熔炉**. 将多源数据清洗并注入 `tsa_data.db`。
 - `app.py`: **Web 后端 (Flask)**.
 
 ## 🚀 快速开始
 
-**启动看板**:
+**一键启动 (推荐)**:
+
+直接双击运行根目录下的：
 
 ```bash
-python app.py
-# 访问 http://127.0.0.1:5001
-# (注意：端口已变更为 5001)
+start.bat
 ```
+
+> 脚本会自动在后台启动 Flask 数据服务，并自动唤醒默认浏览器打开仪表盘。
 
 **日常更新**:
 
