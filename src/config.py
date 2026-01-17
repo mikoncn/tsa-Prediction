@@ -7,8 +7,10 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(PROJECT_ROOT, 'tsa_data.db')
 
 # Model Paths
-MODEL_DIR = os.path.join(PROJECT_ROOT) # Currently models are in root or moved? 
-# Plan says move predict_sniper.py to src/models. 
-# The JSON model file usually stays in root or can be moved to data/models.
-# For now, let's assume valid paths.
-SNIPER_MODEL_PATH = os.path.join(PROJECT_ROOT, 'sniper_model.json')
+MODEL_DIR = os.path.join(PROJECT_ROOT) 
+
+# [ARCH] Forecast Model (T+1 to T+7) - Trained by train_xgb.py
+FORECAST_MODEL_PATH = os.path.join(PROJECT_ROOT, 'xgb_forecast_v1.json')
+
+# [ARCH] Sniper Model (T+0 Nowcast) - Trained/Used by predict_sniper.py
+SNIPER_MODEL_PATH = os.path.join(PROJECT_ROOT, 'sniper_jit_v1.json')

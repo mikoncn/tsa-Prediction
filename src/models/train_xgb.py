@@ -10,7 +10,7 @@ import sys
 
 # Add src to path if run directly
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from src.config import DB_PATH
+from src.config import DB_PATH, FORECAST_MODEL_PATH
 
 warnings.filterwarnings('ignore')
 
@@ -356,8 +356,8 @@ model_full.fit(X_full, y_full)
 print(f"   Full Model Trained on {len(full_train_df)} rows.")
     
 # [NEW] Save Model for Sniper (Persistence)
-print("   [PERSISTENCE] Saving model to sniper_model.json...")
-model_full.save_model("sniper_model.json")
+print(f"   [PERSISTENCE] Saving forecast model to {FORECAST_MODEL_PATH}...")
+model_full.save_model(FORECAST_MODEL_PATH)
 print("   [PERSISTENCE] Model saved successfully.")
 
 # 关键修正: 找到最后一条"真实有数据"的日期 (忽略未来骨架)

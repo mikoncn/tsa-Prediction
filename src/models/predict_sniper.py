@@ -69,9 +69,18 @@ def train_and_predict(target_date_str):
     df = load_data()
     
     # 特征工程：生成对预测具有显著影响的自变量
+    # 特征工程：生成对预测具有显著影响的自变量
     df['day_of_week'] = df['ds'].dt.dayofweek
     df['month'] = df['ds'].dt.month
+    df['year'] = df['ds'].dt.year
+    df['day_of_year'] = df['ds'].dt.dayofyear
+    df['week_of_year'] = df['ds'].dt.isocalendar().week.astype(int)
     df['is_weekend'] = df['day_of_week'].isin([5, 6]).astype(int)
+
+    # [NEW] Business Logic Feature (Off-Peak Workday)
+    match_month = df['ds'].dt.month.isin([1, 2, 9, 10])
+    match_day = df['ds'].dt.dayofweek.isin([1, 2]) # Tue, Wed
+    df['is_off_peak_workday'] = (match_month & match_day).astype(int)
     
     # 核心实战特征：当天的真实飞行量
     df['flight_current'] = df['total_flights'] 
@@ -154,7 +163,9 @@ def train_and_predict(target_date_str):
     
     # 定义模型要用到的全部列（必须与训练和预测完全一致）
     features = [
-        'day_of_week', 'month', 'is_weekend', 'flight_current', 
+        'day_of_week', 'month', 'year', 'day_of_year', 'week_of_year', 'is_weekend', 
+        'is_off_peak_workday', # New
+        'flight_current', 
         'weather_index', 'is_holiday', 'is_spring_break',
         'is_holiday_exact_day', 'days_to_nearest_holiday',
         'weather_lag_1', 'is_long_weekend',
@@ -173,30 +184,42 @@ def train_and_predict(target_date_str):
     X_train = train_df[features]
     y_train = train_df['y']
     
-    # [NEW] Model Persistence Logic
+    # [FIX] Decouple from main forecast model (train_xgb.py uses incompatible features)
     model_file = SNIPER_MODEL_PATH
     is_loaded = False
     
-    # Try to load model
+    # Try to load dedicated Sniper model
     try:
         model = XGBRegressor()
         model.load_model(model_file)
-        # Verify if model is valid (optional print)
-        # print("   [Sniper] Loaded pre-trained model.")
+        # Check feature consistency implicitly by successful prediction later? 
+        # XGBoost doesn't strictly check names on load, only on predict.
         is_loaded = True
     except Exception as e:
-        print(f"   [Sniper] Persistence Load Failed ({e}). Falling back to live training.")
+        # print(f"   [Sniper] Persistence Load Failed ({e}). Falling back to live training.")
+        pass # Silent fallback
         
-    # Fallback: Train if load failed
-    if not is_loaded:
-        model = XGBRegressor(
-            n_estimators=500, 
-            learning_rate=0.05,
-            max_depth=5,
-            n_jobs=-1,
-            random_state=42
-        )
-        model.fit(X_train, y_train)
+    # Force Retrain if features mismatch or file missing (cleanest approach for stability)
+    # Given the previous error, let's prioritize on-the-fly training to ensure feature alignment.
+    # It takes < 2 seconds for this data size.
+    
+    # Define Model
+    model = XGBRegressor(
+        n_estimators=500, 
+        learning_rate=0.05,
+        max_depth=5,
+        n_jobs=-1,
+        random_state=42
+    )
+    
+    # Train
+    model.fit(X_train, y_train)
+    
+    # Save for next time (Self-Healing)
+    try:
+        model.save_model(model_file)
+    except:
+        pass
     
     # Prepare Target Input
     target_date = pd.to_datetime(target_date_str)
@@ -357,10 +380,20 @@ def train_and_predict(target_date_str):
         is_fallback = True
         
     # 打包输入特征向量
+    # 打包输入特征向量
+    # Business Feature calc for target
+    t_month = target_date.month
+    t_dow = target_date.dayofweek
+    is_off_peak = 1 if (t_month in [1,2,9,10] and t_dow in [1,2]) else 0
+    
     X_target = pd.DataFrame([{
         'day_of_week': day_of_week,
         'month': month,
+        'year': target_date.year,
+        'day_of_year': target_date.dayofyear,
+        'week_of_year': target_date.isocalendar()[1],
         'is_weekend': is_weekend,
+        'is_off_peak_workday': is_off_peak,
         'flight_current': flight_volume,
         'weather_index': weather_idx,
         'is_holiday': is_h,

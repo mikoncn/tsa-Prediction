@@ -4,3 +4,17 @@ __pycache__/
 *.db
 credentials.json
 .env
+
+# Models
+sniper_jit*.json
+xgb_forecast*.json
+autogluon_model/
+
+# Runtime Data & Reports
+*.csv
+*.txt
+!requirements.txt
+challenger_summary.json
+.cache.sqlite
+.DS_Store
+.vscode/
