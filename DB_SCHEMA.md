@@ -84,13 +84,18 @@
 
 存储模型每日运行的预测结果，用于回测分析。
 
-| Column Name              | Type           | Description                             |
-| :----------------------- | :------------- | :-------------------------------------- |
-| **id**                   | `INTEGER` (PK) | 自增 ID                                 |
-| **target_date**          | `TEXT`         | 预测的目标日期                          |
-| **predicted_throughput** | `INTEGER`      | 预测值                                  |
-| **model_run_date**       | `TEXT`         | 模型运行日期 (When was this predicted?) |
-| **created_at**           | `TIMESTAMP`    | 记录创建时间                            |
+| Column Name              | Type           | Description                            |
+| :----------------------- | :------------- | :------------------------------------- |
+| **id**                   | `INTEGER` (PK) | 自增 ID                                |
+| **target_date**          | `TEXT`         | 预测的目标日期                         |
+| **predicted_throughput** | `INTEGER`      | 预测值                                 |
+| **model_run_date**       | `TEXT`         | 模型运行日期                           |
+| **weather_index**        | `INTEGER`      | [NEW] 预测日天气熔断指数               |
+| **is_holiday**           | `INTEGER`      | [NEW] 是否节日 (0/1)                   |
+| **holiday_name**         | `TEXT`         | [NEW] 节日名称 (用于前端 T-x 标签计算) |
+| **flight_volume**        | `INTEGER`      | [NEW] 预测日航班量 (Lag-1)             |
+| **is_weekend**           | `INTEGER`      | [NEW] 是否周末                         |
+| **created_at**           | `TIMESTAMP`    | 记录创建时间                           |
 
 ---
 

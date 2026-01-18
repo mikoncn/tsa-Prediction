@@ -91,3 +91,204 @@ canvas {
   background: #ddd;
   margin: 0 10px;
 }
+/* Raw Data Panel Styles (Premium Glassmorphism Theme) */
+#tab-rawdata {
+    background: rgba(255, 255, 255, 0.7); /* Semi-transparent base */
+    backdrop-filter: blur(12px); /* Glass blur effect */
+    -webkit-backdrop-filter: blur(12px);
+    padding: 0;
+    border-radius: 16px; /* Dofter corners */
+    box-shadow: 
+        0 4px 6px rgba(0, 0, 0, 0.02), 
+        0 10px 30px rgba(0, 0, 0, 0.05),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.5); /* Subtle inner border */
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+#rawTable {
+    width: 100%;
+    border-collapse: separate; /* Required for border-radius on rows if needed */
+    border-spacing: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+    table-layout: fixed;
+}
+
+/* --- Column Widths & Alignment --- */
+/* User requested equal spacing and fixed alignment issues */
+#rawTable th, #rawTable td {
+    padding: 12px;
+    vertical-align: middle;
+}
+
+/* --- Column Widths & Alignment --- */
+/* STRICT 6-Column Grid for Equal Spacing */
+#rawTable th, #rawTable td {
+    padding: 12px 8px; /* Balanced padding */
+    vertical-align: middle;
+}
+
+/* Force equal widths (100% / 6 = 16.66%) */
+#rawTable th, #rawTable td { width: 16.66%; }
+
+/* Alignments */
+#rawTable th:nth-child(1), #rawTable td:nth-child(1) { text-align: center; } /* Date */
+#rawTable th:nth-child(2), #rawTable td:nth-child(2) { text-align: center; } /* Throughput (Center to match header gap) */
+#rawTable th:nth-child(3), #rawTable td:nth-child(3) { text-align: center; } /* Holiday */
+#rawTable th:nth-child(4), #rawTable td:nth-child(4) { text-align: center; } /* Weather */
+#rawTable th:nth-child(5), #rawTable td:nth-child(5) { text-align: center; } /* Flight */
+#rawTable th:nth-child(6), #rawTable td:nth-child(6) { text-align: center; } /* Lags */
+
+/* Override specific data content to improve readability if needed, 
+   but User insisted on "Equal Header Spacing", so Center is safest 
+   visual approach for "Spaces between headers". 
+   We will keep data centered for symmetry. */
+
+/* --- Header Styles --- */
+#rawTable thead th {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: #495057;
+    font-weight: 700;
+    font-size: 0.85em;
+    border-bottom: 2px solid #dee2e6;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    white-space: nowrap;
+    text-align: center !important; /* Force Center Headers */
+}
+
+/* --- Row Styles --- */
+#rawTable tbody tr {
+    border-bottom: 1px solid #eee;
+    transition: background-color 0.15s ease;
+}
+
+#rawTable tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.05); /* Standard light blue hover */
+}
+
+#rawTable td {
+    font-size: 0.95em;
+    color: #343a40;
+    border-bottom: 1px solid #f2f2f2;
+}
+
+/* --- Typography --- */
+.col-date {
+    display: block; /* Stack date and day */
+    font-weight: 700;
+    color: #212529;
+    font-size: 1.05em;
+    line-height: 1.3;
+}
+
+.col-weekday {
+    display: block;
+    font-size: 0.8em;
+    color: #868e96;
+    font-weight: 500;
+    margin-top: 4px;
+}
+
+.col-number {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+    font-feature-settings: "tnum"; /* Tabular numbers for alignment */
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    font-size: 1.05em;
+    color: #212529;
+    letter-spacing: 0; /* Reset spacing */
+}
+
+/* --- Components --- */
+.badge-holiday {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    border-radius: 8px; /* Softer rect */
+    font-size: 0.8em;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); /* Depth */
+}
+.badge-holiday.exact  { 
+    background: linear-gradient(135deg, #fff5f5, #ffe3e3); 
+    color: #e03131; 
+    border: 1px solid rgba(255, 107, 107, 0.2);
+}
+.badge-holiday.window { 
+    background: linear-gradient(135deg, #fff9db, #fff3bf); 
+    color: #f08c00; 
+    border: 1px solid rgba(255, 212, 59, 0.3);
+}
+
+.weather-indicator { display: flex; align-items: center; justify-content: center; gap: 12px; height: 100%; }
+.weather-dot { 
+    width: 10px; 
+    height: 10px; 
+    border-radius: 50%; 
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.6), 0 2px 4px rgba(0,0,0,0.1); 
+}
+
+.flight-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center; /* Centered */
+    gap: 4px;
+}
+.flight-diff {
+    font-size: 0.75em;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.03);
+}
+
+.lag-cell {
+    font-size: 0.85em;
+    color: #adb5bd;
+    font-family: 'SF Mono', monospace;
+    background: rgba(248, 249, 250, 0.5);
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+/* Tooltip cleanup */
+.tooltip-icon { border-bottom: none; cursor: help; position: relative; }
+.tooltip-icon::after {
+    content: '?';
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    background: #e9ecef;
+    color: #868e96;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 14px;
+    font-size: 10px;
+    margin-left: 5px;
+    vertical-align: top;
+    margin-top: 2px;
+}
+
+/* Custom Scrollbar for Glass Effect */
+.glass-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+.glass-scroll::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 4px;
+}
+.glass-scroll::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+}
+.glass-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.2);
+}

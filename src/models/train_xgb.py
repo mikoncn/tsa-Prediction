@@ -366,36 +366,49 @@ last_actual_date = last_actual_row['ds']
 print(f"Last Actual Data Date: {last_actual_date.date()}")
 
 # 从"有数据"的后一天开始预测
-future_dates = pd.date_range(start=last_actual_date + pd.Timedelta(days=1), periods=7)
+print("   [DEBUG] STARTING FORECAST GENERATION PHASE")
+try:
+    # [FIX] Ensure we cover enough future days even if data is stale
+    print("   [DEBUG] Generating future_dates...")
+    future_dates = pd.date_range(start=last_actual_date + pd.Timedelta(days=1), periods=14)
+    print(f"   [DEBUG] Generated {len(future_dates)} days: {future_dates[0]} to {future_dates[-1]}")
 
-# 构建未来特征 DataFrame
-future_df = pd.DataFrame({'ds': future_dates})
+    # 构建未来特征 DataFrame
+    future_df = pd.DataFrame({'ds': future_dates})
 
-# ... (Feature Engineering continues)
+    # ... (Feature Engineering continues)
 
-# A. 时间特征
-future_df['day_of_week'] = future_df['ds'].dt.dayofweek
-future_df['month'] = future_df['ds'].dt.month
-future_df['year'] = future_df['ds'].dt.year
-future_df['day_of_year'] = future_df['ds'].dt.dayofyear
-future_df['week_of_year'] = future_df['ds'].dt.isocalendar().week.astype(int)
-future_df['is_weekend'] = future_df['day_of_week'].isin([5, 6]).astype(int)
+    # A. 时间特征
+    print("   [DEBUG] Generating Time Features...")
+    future_df['day_of_week'] = future_df['ds'].dt.dayofweek
+    future_df['month'] = future_df['ds'].dt.month
+    future_df['year'] = future_df['ds'].dt.year
+    future_df['day_of_year'] = future_df['ds'].dt.dayofyear
+    future_df['week_of_year'] = future_df['ds'].dt.isocalendar().week.astype(int)
+    future_df['is_weekend'] = future_df['day_of_week'].isin([5, 6]).astype(int)
 
-# B. 滞后特征 (Lags)
-# 对于 Lag-7，我们需要过去 7 天的数据
-# 对于 Lag-364，我们需要去年的数据
-# 注意: 这里简化处理，直接从历史数据 df 中查找对应日期的值
-def get_lag_value(target_date, lag_days):
-    past_date = target_date - pd.Timedelta(days=lag_days)
-    # 在 df 中查找 (如果 df 没有，可能需要递归预测? 简单起见假设 df 足够长)
-    row = df[df['ds'] == past_date]
-    if not row.empty:
-        return row.iloc[0]['y']
-    else:
-        return 0 # Fallback
+    # B. 滞后特征 (Lags)
+    # 对于 Lag-7，我们需要过去 7 天的数据
+    # 对于 Lag-364，我们需要去年的数据
+    # 注意: 这里简化处理，直接从历史数据 df 中查找对应日期的值
+    def get_lag_value(target_date, lag_days):
+        past_date = target_date - pd.Timedelta(days=lag_days)
+        # 在 df 中查找 (如果 df 没有，可能需要递归预测? 简单起见假设 df 足够长)
+        row = df[df['ds'] == past_date]
+        if not row.empty:
+            return row.iloc[0]['y']
+        else:
+            return 0 # Fallback
 
-future_df['lag_7'] = future_df['ds'].apply(lambda x: get_lag_value(x, 7))
-future_df['lag_364'] = future_df['ds'].apply(lambda x: get_lag_value(x, 364))
+    print("   [DEBUG] Generating Lag Features...")
+    future_df['lag_7'] = future_df['ds'].apply(lambda x: get_lag_value(x, 7))
+    future_df['lag_364'] = future_df['ds'].apply(lambda x: get_lag_value(x, 364))
+    print("   [DEBUG] Lag Features Done.")
+except Exception as e:
+    print(f"   [CRITICAL ERROR] Forecast Generation Failed: {e}")
+    import traceback
+    traceback.print_exc()
+    raise e # Re-raise to crash properly
 
 # C. 业务特征
 match_month = future_df['ds'].dt.month.isin([1, 2, 9, 10])
@@ -444,19 +457,34 @@ major_holiday_dates = sorted(list(set(major_holiday_dates)))
         
 future_df['is_holiday'] = 0
 future_df['is_holiday_exact_day'] = 0
+future_df['holiday_name'] = None # [NEW]
 future_df['days_to_nearest_holiday'] = 15 # Default to "Far Away" (Clamped Max)
+
+# [FIX] Ensure holidays object covers the future period explicitly
+us_holidays_future = holidays.US(years=range(2024, 2030))
 
 for idx, row in future_df.iterrows():
     d = row['ds']
-    d_date = d.date() if hasattr(d, 'date') else d
+    # Robust date conversion
+    d_date = d.date() if hasattr(d, 'date') else pd.to_datetime(d).date()
     
     # 1. Exact Holiday Flag
-    if d_date in us_holidays:
-        name = us_holidays.get(d_date)
-        # Only flag if it's one of our targets (or general holiday? Keep general is_holiday for now, but specific logic for exact)
+    if d_date in us_holidays_future:
+        name = us_holidays_future.get(d_date)
         future_df.at[idx, 'is_holiday'] = 1
+        future_df.at[idx, 'holiday_name'] = name # [NEW] Store name
+        
         if any(m in name for m in target_holidays):
             future_df.at[idx, 'is_holiday_exact_day'] = 1
+            
+        print(f"   [DEBUG] Found Holiday: {d_date} (Type: {type(d_date)}) -> Name: {name}")
+    else:
+        # Debug why Jan 19 2026 is missed
+        if str(d_date) == '2026-01-19':
+             print(f"   [DEBUG_MISS] 2026-01-19 check failed! d_date type: {type(d_date)}, In keys? {d_date in us_holidays_future}")
+    
+    # Check Good Friday for exact flag too? 
+    # Good Friday is not in us_holidays usually. Let's manually check.
     
     # Check Good Friday for exact flag too? 
     # Good Friday is not in us_holidays usually. Let's manually check.
@@ -589,8 +617,9 @@ history_db = "tsa_data.db"
 today = pd.Timestamp.now().strftime('%Y-%m-%d')
 
 # Prepare new rows
-new_log = future_df[['ds', 'predicted_throughput', 'weather_index', 'is_holiday', 'flight_lag_1', 'is_weekend']].copy()
-new_log.columns = ['target_date', 'predicted_throughput', 'weather_index', 'is_holiday', 'flight_lag_1', 'is_weekend']
+# Prepare new rows
+new_log = future_df[['ds', 'predicted_throughput', 'weather_index', 'is_holiday', 'flight_lag_1', 'is_weekend', 'holiday_name']].copy()
+new_log.columns = ['target_date', 'predicted_throughput', 'weather_index', 'is_holiday', 'flight_volume', 'is_weekend', 'holiday_name']
 new_log['model_run_date'] = today
 
 # [FIX] Ensure date columns are strings

@@ -116,6 +116,31 @@ def main():
     df_full = df_full.merge(df_holiday, on='date', how='left')
     # Merge weather (inner join logic effectively, but left to keep skeleton)
     df_full = df_full.merge(df_weather, on='date', how='left')
+
+    # [NEW] Merge Flight Data (OpenSky)
+    print("3.5 合并航班数据 (OpenSky)...")
+    try:
+        # Load flight stats (summing over airports per date)
+        df_flights = pd.read_sql("SELECT date, SUM(arrival_count) as flight_volume FROM flight_stats GROUP BY date", conn)
+        df_flights['date'] = pd.to_datetime(df_flights['date'])
+        
+        # [NEW] Filter out low quality data (e.g. partial fetches)
+        # Threshold: 2000 flights (Major hubs daily sum should be >> 2000)
+        # Keeps user from seeing "27 flights"
+        df_flights = df_flights[df_flights['flight_volume'] > 2000]
+        
+        # Calculate 7-day Moving Average for flights (Baseload)
+        df_flights = df_flights.sort_values('date')
+        df_flights['flight_ma_7'] = df_flights['flight_volume'].rolling(window=7, min_periods=1).mean()
+        
+        df_full = df_full.merge(df_flights, on='date', how='left')
+        df_full['flight_volume'] = df_full['flight_volume'].fillna(0).astype(int)
+        df_full['flight_ma_7'] = df_full['flight_ma_7'].fillna(0).astype(int)
+        
+    except Exception as e:
+        print(f"Warning: Could not merge flight data: {e}")
+        df_full['flight_volume'] = 0
+        df_full['flight_ma_7'] = 0
     
     # 4. 基础清洗
     # 填充 weather_index (NaN -> 0)
@@ -208,7 +233,9 @@ def main():
     print("7. 存入数据库表 traffic_full ...")
     # 清理临时列
     # 清理临时列
-    cols_to_keep = ['date', 'throughput', 'weather_index', 'is_holiday', 'holiday_name', 'is_holiday_exact_day', 'is_holiday_travel_window', 'is_spring_break', 'throughput_lag_7']
+    cols_to_keep = ['date', 'throughput', 'weather_index', 'is_holiday', 'holiday_name', 
+                    'is_holiday_exact_day', 'is_holiday_travel_window', 'is_spring_break', 
+                    'throughput_lag_7', 'flight_volume', 'flight_ma_7']
     final_df = df_full[cols_to_keep].copy()
     
     # 转换 date 为 string 存入 sqlite

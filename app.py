@@ -57,6 +57,55 @@ def get_data():
         data.append(item)
         
     return jsonify(data)
+# API: 获取生数据 (Raw Data) - 支持分页
+@app.route('/api/raw_data')
+def get_raw_data():
+    try:
+        from flask import request
+        limit = int(request.args.get('limit', 15))
+        offset = int(request.args.get('offset', 0))
+        
+        conn = get_db_connection()
+        
+        # 动态查询所有字段
+        # 我们先查一下列名，确保全量因子都能获取
+        # 核心因子: date, throughput, weather_index, is_holiday, holiday_name, 
+        #           flight_volume, days_to_nearest_holiday, is_off_peak_workday, 
+        #           is_spring_break, throughput_lag_7
+        
+        # 检查表是否存在
+        check_query = "SELECT name FROM sqlite_master WHERE type='table' AND name='traffic_full'"
+        if not conn.execute(check_query).fetchone():
+            return jsonify({'error': 'Table traffic_full not ready'}), 404
+
+        # 获取所有列名
+        cursor = conn.execute("PRAGMA table_info(traffic_full)")
+        columns = [row['name'] for row in cursor.fetchall()]
+        
+        # 构建查询
+        col_str = ", ".join(columns)
+        # [FIX] User requested to limit future data to T+3 days to avoid empty rows
+        query = f"SELECT {col_str} FROM traffic_full WHERE date <= date('now', '+3 days') ORDER BY date DESC LIMIT ? OFFSET ?"
+        
+        rows = conn.execute(query, (limit, offset)).fetchall()
+        conn.close()
+        
+        data = []
+        for row in rows:
+            # 将 sqlite.Row 转为普通 dict
+            item = dict(row)
+            data.append(item)
+            
+        return jsonify({
+            'status': 'success',
+            'data': data,
+            'pagination': {'limit': limit, 'offset': offset}
+        })
+        
+    except Exception as e:
+        print(f"Error in get_raw_data: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 # API: 获取预测结果和历史验证数据
 @app.route('/api/predictions')
 def get_predictions():
@@ -71,9 +120,10 @@ def get_predictions():
         
         # 1. 加载未来预测 (Forecast) - From SQLite 'prediction_history'
         # Logic: Get predictions for Date >= Today
+        # Logic: Get predictions for Date >= Today
         query_forecast = """
             SELECT target_date, predicted_throughput, model_run_date, 
-                   weather_index, is_holiday, flight_volume
+                   weather_index, is_holiday, flight_volume, holiday_name 
             FROM prediction_history 
             WHERE target_date >= ?
         """
@@ -89,7 +139,7 @@ def get_predictions():
             # Fill NaNs for display
             df_forecast[['weather_index', 'is_holiday', 'flight_volume']] = df_forecast[['weather_index', 'is_holiday', 'flight_volume']].fillna(0)
             
-            result['forecast'] = df_forecast[['target_date', 'predicted_throughput', 'weather_index', 'is_holiday', 'flight_volume']].rename(columns={
+            result['forecast'] = df_forecast[['target_date', 'predicted_throughput', 'weather_index', 'is_holiday', 'flight_volume', 'holiday_name']].rename(columns={
                 'target_date': 'ds',
                 'predicted_throughput': 'predicted_throughput'
             }).to_dict(orient='records')

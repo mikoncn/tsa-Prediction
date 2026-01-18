@@ -82,24 +82,55 @@
             </div>
         </div>
 
-        <!-- 预测回测表格 -->
+        <!-- 预测回测表格 & 生数据面板 -->
         <div class="review-panel" style="margin-top: 40px;">
-            <h2 style="border-left: 5px solid #28a745; padding-left: 10px;">🛡️ 模型实战回测 (Model Accuracy Review)</h2>
-            <div style="overflow-x: auto; max-height: 500px; overflow-y: auto; border: 1px solid #dee2e6;">
-                <table id="accuracyTable" style="width: 100%; border-collapse: collapse; margin-top: 15px;">
-                    <thead>
-                        <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6; position: sticky; top: 0; z-index: 1;">
-                            <th style="padding: 12px; text-align: left;">日期</th>
-                            <th style="padding: 12px; text-align: right;">真实客流</th>
-                            <th style="padding: 12px; text-align: right;">AI 预测</th>
-                            <th style="padding: 12px; text-align: right;">误差 (人数)</th>
-                            <th style="padding: 12px; text-align: center;">准确度</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- JS 填充 -->
-                    </tbody>
-                </table>
+            <div class="panel-tabs" style="display: flex; gap: 20px; border-bottom: 2px solid #eee; margin-bottom: 20px;">
+                <h2 id="tab-btn-validation" onclick="switchTab('validation')" style="border-left: 5px solid #28a745; padding-left: 10px; cursor: pointer; margin-bottom: 10px; opacity: 1;">🛡️ 模型实战回测</h2>
+                <h2 id="tab-btn-rawdata" onclick="switchTab('rawdata')" style="border-left: 5px solid #ccc; padding-left: 10px; cursor: pointer; margin-bottom: 10px; opacity: 0.5;">🧬 全息生数据 (Raw Matrix)</h2>
+            </div>
+
+            <!-- Tab 1: Validation -->
+            <div id="tab-validation" style="display: block;">
+                <div style="overflow-x: auto; max-height: 500px; overflow-y: auto; border: 1px solid #dee2e6;">
+                    <table id="accuracyTable" style="width: 100%; border-collapse: collapse; margin-top: 0;">
+                        <thead>
+                            <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6; position: sticky; top: 0; z-index: 1;">
+                                <th style="padding: 12px; text-align: left;">日期</th>
+                                <th style="padding: 12px; text-align: right;">真实客流</th>
+                                <th style="padding: 12px; text-align: right;">AI 预测</th>
+                                <th style="padding: 12px; text-align: right;">误差 (人数)</th>
+                                <th style="padding: 12px; text-align: center;">准确度</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- JS 填充 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab 2: Raw Data -->
+            <div id="tab-rawdata" style="display: none;">
+                <div class="glass-scroll" style="overflow-x: auto; max-height: 600px; overflow-y: auto;">
+                    <table id="rawTable">
+                        <thead>
+                            <tr>
+                                <th style="padding: 10px;">日期 (Date)</th>
+                                <th style="padding: 10px; text-align: right;">客流量 (Throughput)</th>
+                                <th style="padding: 10px;">节假日 (Holiday)</th>
+                                <th style="padding: 10px;">气象因子 (Weather)</th>
+                                <th style="padding: 10px;">航班因子 (Flight)</th>
+                                <th style="padding: 10px;">时序锚点 (Lags)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rawTableBody">
+                            <!-- JS 填充 -->
+                        </tbody>
+                    </table>
+                </div>
+                <div style="text-align: center; margin-top: 15px;">
+                    <button onclick="loadRawData()" style="padding: 10px 30px; background: #17a2b8; color: white; border: none; border-radius: 4px; cursor: pointer;">⬇️ 加载更多 (Load More 50)</button>
+                </div>
             </div>
         </div>
     </div>

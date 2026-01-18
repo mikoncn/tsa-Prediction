@@ -163,6 +163,22 @@ async function loadData() {
         const response = await fetch('/api/data');
         const data = await response.json();
         
+        // [NEW] Populate Holiday Index for Client-side Calculation
+        // Filter for actual holidays. 
+        // Note: Sometimes a holiday might be merged with "Travel Window" string (e.g. "Travel Window, New Year's Day").
+        // We should KEEP it if it contains a major holiday name, even if it has "Travel Window".
+        window.availableHolidayDates = data
+            .filter(d => d.is_holiday === 1 && d.holiday_name)
+            .filter(d => {
+                // If it's PURELY a window/week tag, exclude it.
+                // But if it contains "Day", "Eve", or "Thanksgiving" (Major Holiday), keep it.
+                if (d.holiday_name.includes('Travel Window') || d.holiday_name.includes('出行周')) {
+                    return d.holiday_name.includes('Day') || d.holiday_name.includes('Eve') || d.holiday_name.includes('Thanksgiving') || d.holiday_name.includes('New Year');
+                }
+                return true;
+            })
+            .map(d => ({ date: d.date, name: d.holiday_name }));
+        
         // 格式化数据供 Chart.js 使用
         allData = data.map(item => ({
             x: item.date,
@@ -182,7 +198,12 @@ async function loadData() {
 
         updateZoomLimits();    // 更新缩放限制
         setQuickRange(30);     // 默认显示最近30天
-        fetchPredictions();    // 加载预测数据
+        await fetchPredictions(); // [FIX] Await to ensure future holidays are loaded before Table Render
+        
+        // Trigger Raw Data Load (Default Page 1) if not already triggered by setQuickRange?
+        // Actually setQuickRange just sets Chart zoom. 
+        // We explicitly call loadRawData() now to ensure it uses the populated holiday index.
+        loadRawData(1);
         
     } catch (error) {
         console.error('Error loading data:', error);
@@ -214,7 +235,34 @@ async function fetchPredictions() {
         }
         
         // 2. Add Forecast (Future Predictions)
+        // 2. Add Forecast (Future Predictions)
         if (data.forecast && data.forecast.length > 0) {
+            // [NEW] Add Future Holidays to Global Index
+            // Applying same robust filter as loadData
+            const futureHolidays = data.forecast
+                .filter(d => d.is_holiday === 1 && d.holiday_name)
+                .filter(d => {
+                    if (d.holiday_name.includes('Travel Window') || d.holiday_name.includes('出行周')) {
+                        return d.holiday_name.includes('Day') || d.holiday_name.includes('Eve') || d.holiday_name.includes('Thanksgiving') || d.holiday_name.includes('New Year');
+                    }
+                    return true;
+                })
+                .map(d => ({ date: d.ds, name: d.holiday_name })); // Note: forecast uses 'ds', not 'date'
+            
+            console.log("Future Holidays Found in Forecast:", futureHolidays);
+
+            // Merge unique
+            futureHolidays.forEach(fh => {
+               // Ensure window.availableHolidayDates exists
+               if (!window.availableHolidayDates) window.availableHolidayDates = [];
+               
+               if (!window.availableHolidayDates.some(existing => existing.date === fh.date)) {
+                   console.log("Merging Future Holiday:", fh);
+                   window.availableHolidayDates.push(fh);
+               }
+            });
+            console.log("Final Holiday Index:", window.availableHolidayDates);
+
             data.forecast.forEach(item => {
                 // Avoid duplicates if forecast overlaps with history (though logic should prevent it)
                 if (!combinedPredictions.some(p => p.x === item.ds)) {
@@ -630,3 +678,223 @@ window.runChallenger = async function() {
         btn.style.backgroundColor = '#6f42c1';
     }
 };
+
+// ==========================================
+// [NEW] Raw Data Panel Logic (生数据 - Clean Light Mode)
+// ==========================================
+
+// ==========================================
+// [NEW] Raw Data Panel Logic (生数据 - Clean Light Mode)
+// ==========================================
+
+// [NEW] Global Holiday Index for Client-side Window Calculation
+window.availableHolidayDates = [];
+
+// [NEW] Helper to calculate distance to nearest holiday
+function getClientSideHolidayDistance(targetDateStr) {
+    if (!window.availableHolidayDates || window.availableHolidayDates.length === 0) return null; // Use window var
+
+    // [FIX] Use safe parsing to avoid Timezone offsets moving dates by 1 day
+    function parseYMD(str) {
+        const [y, m, d] = str.split('-').map(Number);
+        return new Date(y, m - 1, d); // Local time 00:00:00
+    }
+
+    const target = parseYMD(targetDateStr);
+    let minDiff = Infinity;
+    let closestHoliday = null;
+
+    availableHolidayDates.forEach(h => {
+        const hDate = parseYMD(h.date);
+        // Time difference in milliseconds
+        const diffTime = target - hDate;
+        // Round to nearest integer day
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24)); 
+        
+        if (Math.abs(diffDays) < Math.abs(minDiff)) {
+            minDiff = diffDays;
+            closestHoliday = h.name;
+        }
+    });
+
+    // Window: +/- 4 days (User asked for T-3/T+3 but wider search safe)
+    if (Math.abs(minDiff) <= 3 && minDiff !== 0) {
+        return { dist: minDiff, name: closestHoliday };
+    }
+    return null;
+}
+
+let currentRawOffset = 0;
+let isFirstLoadRaw = true;
+
+window.switchTab = function(tabName) {
+    const tabVal = document.getElementById('tab-validation');
+    const tabRaw = document.getElementById('tab-rawdata');
+    const btnVal = document.getElementById('tab-btn-validation');
+    const btnRaw = document.getElementById('tab-btn-rawdata');
+
+    if (tabName === 'validation') {
+        tabVal.style.display = 'block';
+        tabRaw.style.display = 'none';
+        
+        btnVal.style.opacity = '1';
+        btnVal.style.borderColor = '#28a745';
+        
+        btnRaw.style.opacity = '0.5';
+        btnRaw.style.borderColor = '#ccc';
+    } else {
+        tabVal.style.display = 'none';
+        tabRaw.style.display = 'block';
+        
+        btnVal.style.opacity = '0.5';
+        btnVal.style.borderColor = '#ccc';
+        
+        btnRaw.style.opacity = '1';
+        btnRaw.style.borderColor = '#17a2b8'; // Cyan for Raw Data
+
+        if (isFirstLoadRaw) {
+            window.loadRawData();
+            isFirstLoadRaw = false;
+        }
+    }
+};
+
+window.loadRawData = async function() {
+    const limit = currentRawOffset === 0 ? 15 : 50;
+    
+    try {
+        const response = await fetch(`/api/raw_data?limit=${limit}&offset=${currentRawOffset}`);
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            renderRawTable(result.data);
+            currentRawOffset += limit;
+        } else {
+            console.error("Failed to load raw data:", result);
+        }
+    } catch (e) {
+        console.error("Raw Data API Error:", e);
+    }
+};
+
+const holidayTranslations = {
+    "New Year's Day": "元旦",
+    "Martin Luther King Jr. Day": "马丁路德金日",
+    "Presidents Day": "总统日",
+    "Good Friday": "受难日",
+    "Memorial Day": "阵亡将士纪念日",
+    "Independence Day": "独立日",
+    "Labor Day": "劳动节",
+    "Columbus Day": "哥伦布日",
+    "Veterans Day": "退伍军人节",
+    "Thanksgiving Day": "感恩节",
+    "Christmas Day": "圣诞节",
+    "Christmas Eve": "平安夜",
+    "New Year's Eve": "除夕",
+    // Add more mappings as found in your DB
+};
+
+function translateHoliday(name) {
+    if (!name) return "";
+    for (const [eng, cn] of Object.entries(holidayTranslations)) {
+        if (name.includes(eng)) return cn;
+    }
+    return name; // Fallback to English if not found
+}
+
+function renderRawTable(data) {
+    const tbody = document.getElementById('rawTableBody');
+    
+    data.forEach(row => {
+        const tr = document.createElement('tr');
+        
+        // 1. Date (Chinese + Date)
+        const d = new Date(row.date);
+        const weekday = d.toLocaleDateString('zh-CN', {weekday:'short'});
+        const dateHtml = `<span class="col-date">${row.date}</span><span class="col-weekday">${weekday}</span>`;
+
+        // 2. Throughput (Raw Number) - [FIX] User requested full raw numbers
+        let tp = '-';
+        if (row.throughput) {
+           tp = row.throughput.toLocaleString();
+        }
+
+        // 3. Holiday (Badges - Localized)
+        let holidayHtml = '<span style="color:#eee;">-</span>';
+        
+        // [MODIFIED] Use Client-Side Calculation for robust T-x / T+x
+        if (row.is_holiday === 1) {
+            let engName = row.holiday_name || 'Holiday';
+            let cnName = translateHoliday(engName);
+            holidayHtml = `<span class="badge-holiday exact" title="${engName}">${cnName}</span>`;
+            
+        } else {
+            // Check dynamic distance first
+            const win = getClientSideHolidayDistance(row.date);
+            
+            if (win) {
+                 const dist = win.dist;
+                 // [MODIFIED] User requested unified label "假期出行窗口" instead of "T-x"
+                 const label = "假期出行窗口";
+                 const t_tag = dist < 0 ? `T${dist}` : `T+${dist}`;
+                 
+                 // Translate anchor holiday name too?
+                 let anchorCn = translateHoliday(win.name);
+                 holidayHtml = `<span class="badge-holiday window" title="距离 ${anchorCn} ${Math.abs(dist)} 天 (${t_tag})">${label}</span>`;
+            } else if (row.is_holiday_travel_window === 1) {
+                 // Fallback if DB marked it but our calculator didn't (rare)
+                 holidayHtml = `<span class="badge-holiday window" title="假日出行窗口">假期出行窗口</span>`;
+            }
+        }
+
+        // 4. Weather (Aligned Dots)
+        let wIndex = row.weather_index || 0;
+        let wColor = '#28a745'; 
+        if (wIndex >= 30) wColor = '#fa5252'; 
+        else if (wIndex >= 15) wColor = '#fd7e14';
+        else if (wIndex >= 5) wColor = '#fab005';
+        
+        let weatherHtml = `
+            <div class="weather-indicator">
+                <div class="weather-dot" style="background:${wColor};"></div>
+                <span style="font-weight:500; font-size:0.9em;">${wIndex}</span>
+            </div>
+        `;
+
+        // 5. Flight Volume (Raw Number) - [FIX] Full usage, no 'k'
+        let flightHtml = '-';
+        if (row.flight_volume > 0) {
+            // Calculate Diff vs MA7
+            let diffHtml = '';
+            if (row.flight_ma_7 > 0) {
+                 const diff = row.flight_volume - row.flight_ma_7;
+                 const sign = diff > 0 ? '+' : '';
+                 const color = diff > 0 ? '#28a745' : '#dc3545';
+                 diffHtml = `<div class="flight-diff" style="color:${color}">${sign}${parseInt(diff)}</div>`;
+            }
+            flightHtml = `
+                <div class="flight-cell">
+                    <div>${row.flight_volume.toLocaleString()}</div>
+                    ${diffHtml}
+                </div>
+            `;
+        }
+
+        // 6. Lags (Raw Number for consistency)
+        let lagsHtml = '';
+        if (row.throughput_lag_7) lagsHtml += `<div class="lag-cell">L7: ${row.throughput_lag_7.toLocaleString()}</div>`;
+
+        tr.innerHTML = `
+            <td>${dateHtml}</td>
+            <td class="col-number">${tp}</td>
+            <td>${holidayHtml}</td>
+            <td>${weatherHtml}</td>
+            <td>${flightHtml}</td>
+            <td>${lagsHtml}</td>
+        `;
+
+        tbody.appendChild(tr);
+    });
+}
+
+
