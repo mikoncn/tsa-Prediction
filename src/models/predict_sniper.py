@@ -419,23 +419,33 @@ def train_and_predict(target_date_str):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        # 【核心智能切换逻辑】：
-        # OpenSky 每日批量更新通常在 北京时间 上午 10:00 完成归档。
-        # 1. 如果当前 < 10:00：T-1 (昨天) 数据尚不可读，脚本自动对准 T-2 (前天) 进行狙击。
-        # 2. 如果当前 >= 10:00：T-1 (昨天) 数据已就绪，脚本自动对准 T-1 进行狙击。
+        # 【核心智能切换逻辑 (Smart Sensing)】：
+        #不再依赖硬编码的时间 (10:00)，而是直接询问数据库最新数据到了哪一天。
         
         now = datetime.now()
-        hour_threshold = 10
+        yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
         
-        if now.hour < hour_threshold:
-            target_date = now - timedelta(days=2)
-            print(f"   [智能识别] 当前时间早于 10:00，OpenSky T-1 数据尚未完全归档。")
-            print(f"   [目标设定] 自动瞄准 T-2 (前日): {target_date.strftime('%Y-%m-%d')}")
-        else:
-            target_date = now - timedelta(days=1)
-            print(f"   [智能识别] 当前时间已过 10:00，OpenSky T-1 航班数据已出炉。")
-            print(f"   [目标设定] 自动瞄准 T-1 (昨日): {target_date.strftime('%Y-%m-%d')}")
+        # 1. Check DB for max date
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            row = conn.execute("SELECT MAX(date) FROM flight_stats").fetchone()
+            conn.close()
+            max_db_date = row[0] if row else None
+        except Exception as e:
+            print(f"   [警告] 数据库日期检查失败: {e}，默认回退至 T-2。")
+            max_db_date = None
             
+        # 2. Decide Target
+        if max_db_date == yesterday_str:
+            target_date = now - timedelta(days=1)
+            print(f"   [智能感知] 数据库已同步最新数据 ({max_db_date})。")
+            print(f"   [目标设定] 自动瞄准 T-1 (昨日): {target_date.strftime('%Y-%m-%d')}")
+        else:
+            # Fallback to T-2
+            target_date = now - timedelta(days=2) 
+            print(f"   [智能感知] T-1 ({yesterday_str}) 数据尚未入库 (最新: {max_db_date})。")
+            print(f"   [目标设定] 自动瞄准 T-2 (前日): {target_date.strftime('%Y-%m-%d')}")
+
         target = target_date.strftime("%Y-%m-%d")
     else:
         # 支持通过命令行手动指定日期进行补盲预测。用法: python predict_sniper.py 2026-01-14

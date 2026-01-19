@@ -420,5 +420,127 @@ def run_challenger():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/market_sentiment')
+def get_market_sentiment():
+    """获取 Polymarket 市场情绪 (含 6H 涨跌幅)"""
+    try:
+        conn = get_db_connection()
+        
+        # 1. 获取每个 (date, outcome) 的最新价格
+        # 使用窗口函数或 Group By Max ID (SQLite简单处理)
+        # 这里我们需要针对每个 target_date + outcome_label 分组
+        
+        query_latest = """
+            SELECT target_date, outcome_label, price as current_price, fetched_at, market_slug
+            FROM market_sentiment_snapshots 
+            WHERE id IN (
+                SELECT MAX(id) 
+                FROM market_sentiment_snapshots 
+                GROUP BY target_date, outcome_label
+            )
+            ORDER BY target_date ASC, outcome_label ASC
+        """
+        
+        rows_latest = conn.execute(query_latest).fetchall()
+        
+        # 2. 获取 ~6小时前的价格 (或最接近的旧数据)
+        # 简单策略：查找 fetched_at <= now - 6h 的最新一条
+        # 但这种对于批量查询很慢。
+        # 优化策略：Load full recent history in memory (volume is low enough) OR single complex query.
+        # 鉴于数据量每天仅几百条，载入内存处理最快。
+        
+        # Let's use Python to compute diffs from raw rows for simplicity and robustness
+        query_all_recent = """
+            SELECT target_date, outcome_label, price, fetched_at
+            FROM market_sentiment_snapshots
+            WHERE fetched_at >= datetime('now', '-24 hours')
+            ORDER BY fetched_at ASC
+        """
+        all_rows = conn.execute(query_all_recent).fetchall()
+        conn.close()
+        
+        from datetime import datetime
+        import pandas as pd
+        
+        # Group by key
+        history_map = {} # Key: "date|outcome" -> List of (dt, price)
+        
+        for r in all_rows:
+            key = f"{r['target_date']}|{r['outcome_label']}"
+            fetched_dt = datetime.strptime(r['fetched_at'], '%Y-%m-%d %H:%M:%S')
+            if key not in history_map:
+                history_map[key] = []
+            history_map[key].append((fetched_dt, r['price']))
+            
+        results = []
+        
+        # Process latest rows
+        now = datetime.utcnow() # SQLite usually UTC
+        # If SQLite fetched_at is local, might need adjustment. defaulted to CURRENT_TIMESTAMP (UTC).
+        
+        # Re-iterate latest rows from SQL (or compute from history map latest)
+        # Using SQL latest is safer
+        for r in rows_latest:
+            key = f"{r['target_date']}|{r['outcome_label']}"
+            curr_price = r['current_price']
+            slug = r['market_slug']
+            
+            # Find 6h ago price
+            # Ideal: Price at (Now - 6h)
+            # Logic: Find closest snapshot that is older than 5.5h? Or just finding the one closest to 6h mark?
+            # Let's try to find a data point between 5h and 7h ago.
+            # If not found, fallback to oldest available within 24h?
+            
+            change_6h = 0.0
+            
+            if key in history_map:
+                points = history_map[key]
+                # Points are sorted ASC by time
+                # We want point closest to (latest_time - 6h)
+                
+                # Assume latest fetch was just now-ish
+                latest_ts = points[-1][0]
+                target_ts = latest_ts - pd.Timedelta(hours=6)
+                
+                closest_price = None
+                min_diff_seconds = 999999
+                
+                for (ts, p) in points:
+                    # check difference
+                    diff = abs((ts - target_ts).total_seconds())
+                    # We only care if the point is ACTUALLY in the past relative to latest
+                    # and roughly around the 6h mark (e.g., within 3h to 9h window?)
+                    # Simplification: Just find the record closest to target_ts
+                    
+                    if diff < min_diff_seconds:
+                        min_diff_seconds = diff
+                        closest_price = p
+                
+                # Calculate change
+                if closest_price is not None:
+                     change_6h = curr_price - closest_price
+                     
+            results.append({
+                'target_date': r['target_date'],
+                'market_slug': slug,
+                'outcome': r['outcome_label'],
+                'price': curr_price,
+                'change_6h': round(change_6h, 3),
+                'fetched_at': r['fetched_at']
+            })
+            
+        # Group by Date for frontend convenience
+        grouped = {}
+        for item in results:
+            d = item['target_date']
+            if d not in grouped: grouped[d] = []
+            grouped[d].append(item)
+            
+        return jsonify(grouped)
+        
+    except Exception as e:
+        print(f"Error in market_sentiment: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5001)

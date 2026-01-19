@@ -724,40 +724,161 @@ function getClientSideHolidayDistance(targetDateStr) {
     return null;
 }
 
-let currentRawOffset = 0;
-let isFirstLoadRaw = true;
 
+let isFirstLoadPolymarket = true;
+
+// Custom Tab Switcher (Original Style)
 window.switchTab = function(tabName) {
     const tabVal = document.getElementById('tab-validation');
     const tabRaw = document.getElementById('tab-rawdata');
+    const tabPoly = document.getElementById('tab-polymarket');
+    
     const btnVal = document.getElementById('tab-btn-validation');
     const btnRaw = document.getElementById('tab-btn-rawdata');
+    const btnPoly = document.getElementById('tab-btn-polymarket');
 
+    // Hide all
+    tabVal.style.display = 'none';
+    tabRaw.style.display = 'none';
+    tabPoly.style.display = 'none';
+    
+    // Reset buttons (Opacity 0.5, Grey border)
+    [btnVal, btnRaw, btnPoly].forEach(btn => {
+        if(btn) {
+            btn.style.opacity = '0.5';
+            btn.style.borderColor = '#ccc';
+        }
+    });
+
+    // Show target
     if (tabName === 'validation') {
         tabVal.style.display = 'block';
-        tabRaw.style.display = 'none';
-        
         btnVal.style.opacity = '1';
         btnVal.style.borderColor = '#28a745';
         
-        btnRaw.style.opacity = '0.5';
-        btnRaw.style.borderColor = '#ccc';
-    } else {
-        tabVal.style.display = 'none';
+    } else if (tabName === 'rawdata') {
         tabRaw.style.display = 'block';
-        
-        btnVal.style.opacity = '0.5';
-        btnVal.style.borderColor = '#ccc';
-        
         btnRaw.style.opacity = '1';
-        btnRaw.style.borderColor = '#17a2b8'; // Cyan for Raw Data
-
+        btnRaw.style.borderColor = '#17a2b8';
         if (isFirstLoadRaw) {
-            window.loadRawData();
-            isFirstLoadRaw = false;
+             window.loadRawData();
+             isFirstLoadRaw = false;
+        }
+        
+    } else if (tabName === 'polymarket') {
+        tabPoly.style.display = 'block';
+        btnPoly.style.opacity = '1';
+        btnPoly.style.borderColor = '#6f42c1'; // Purple for Polymarket
+        if (isFirstLoadPolymarket) {
+            renderMarketSentiment();
+            isFirstLoadPolymarket = false;
         }
     }
 };
+
+// Remove Bootstrap listener as we reverted to custom tabs
+// document.addEventListener("DOMContentLoaded", ... ); 
+
+// --- Polymarket Rendering Logic ---
+
+async function renderMarketSentiment() {
+    const container = document.getElementById('polymarket-grid');
+    if(!container) return;
+    
+    container.innerHTML = '<div style="text-align:center; padding:20px;">Fetching Market Data...</div>';
+    
+    try {
+        const res = await fetch('/api/market_sentiment');
+        const data = await res.json();
+        
+        container.innerHTML = '';
+        const dates = Object.keys(data).sort().reverse(); // Show newest dates first? Or upcoming? 
+        // User usually wants to see upcoming. Sort ASC.
+        // Re-sort ASC
+        dates.sort();
+        
+        if (dates.length === 0) {
+            container.innerHTML = '<div style="text-align:center; padding:20px;">暂无预测数据 (No Active Markets)</div>';
+            return;
+        }
+        
+        dates.forEach(date => {
+            const items = data[date];
+            const card = renderPolymarketCard(date, items);
+            container.appendChild(card);
+        });
+        
+    } catch(e) {
+        console.error(e);
+        container.innerHTML = `<div style="text-align:center; color:red;">Load Error: ${e.message}</div>`;
+    }
+}
+
+function renderPolymarketCard(date, items) {
+    const card = document.createElement('div');
+    card.className = 'market-card';
+    
+    // 1. Header
+    const dObj = new Date(date);
+    const dateStr = `${dObj.getMonth()+1}月${dObj.getDate()}日`;
+    const weekdays = ['周日','周一','周二','周三','周四','周五','周六'];
+    const wk = weekdays[dObj.getDay()];
+    
+    const slug = items.length > 0 ? items[0].market_slug : '';
+    const marketUrl = `https://polymarket.com/event/${slug}`;
+    
+    card.innerHTML = `
+        <div class="market-header">
+            <span class="market-date">${dateStr} <span style="font-size:0.8em; font-weight:normal; color:#6c757d;">${wk}</span></span>
+            <a href="${marketUrl}" target="_blank" class="view-details-btn">↗ 更多详情</a>
+        </div>
+    `;
+    
+    // 2. Chips Container (Small Boxes)
+    const list = document.createElement('div');
+    list.className = 'bucket-grid'; // Use a grid/flex layout
+    
+    // Determine Winner (>50%)
+    let maxPrice = -1;
+    items.forEach(i => { if(i.price > maxPrice) maxPrice = i.price; });
+    
+    // Sort items by numeric value logic? Or keep backend order?
+    // Let's rely on backend clean order.
+    
+    items.forEach(item => {
+        const chip = document.createElement('div');
+        chip.className = 'bucket-chip';
+        
+        // Formatting: Replace "-" with "~"
+        let label = item.outcome.replace(/\s-\s/g, ' ~ ');
+        const prob = Math.round(item.price * 100);
+        
+        // Highlight logic
+        if (item.price === maxPrice && item.price > 0.50) {
+            chip.classList.add('winner');
+        }
+        
+        // 6H Change Arrow
+        let changeHtml = '';
+        if (item.change_6h) {
+            const chg = Math.round(item.change_6h * 100);
+            if (chg !== 0) {
+                 const color = chg > 0 ? '#28a745' : '#dc3545';
+                 const sign = chg > 0 ? '▲' : '▼';
+                 changeHtml = `<span style="color:${color}; font-size:0.8em; margin-left:3px;">${sign}${Math.abs(chg)}</span>`;
+            }
+        }
+        
+        chip.innerHTML = `
+            <div class="chip-prob">${prob}%${changeHtml}</div>
+            <div class="chip-label">${label}</div>
+        `;
+        list.appendChild(chip);
+    });
+    
+    card.appendChild(list);
+    return card;
+}
 
 window.loadRawData = async function() {
     const limit = currentRawOffset === 0 ? 15 : 50;

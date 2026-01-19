@@ -97,18 +97,41 @@ def main():
     for df in [df_traffic, df_holiday, df_weather]:
         df['date'] = pd.to_datetime(df['date'])
 
-    # 2. 构建全量时间骨架 (Skeleton)
-    print("2. 构建时间骨架 (2019-01-01 ~ Future)...")
-    start_date = '2019-01-01'
-    # 结束日期取天气的最后一天 (通常是未来15天)
-    if not df_weather.empty:
-        end_date = df_weather['date'].max()
-    else:
-        end_date = pd.Timestamp.now() + pd.Timedelta(days=15)
-        
-    print(f"   时间范围: {start_date} 到 {end_date}")
+    # 2. 构建全量时间骨架 (Skeleton - Robust Union)
+    print("2. 构建时间骨架 (Robust Union Mode)...")
     
-    df_skeleton = pd.DataFrame({'date': pd.date_range(start=start_date, end=end_date)})
+    # 获取各数据源的日期范围
+    dates_traffic = set(df_traffic['date'].dt.date) if 'date' in df_traffic else set()
+    dates_weather = set(df_weather['date'].dt.date) if 'date' in df_weather else set()
+    
+    # 临时读取 flight_stats 以获取其日期范围 (前面没读)
+    try:
+         df_flights_tmp = pd.read_sql("SELECT date FROM flight_stats GROUP BY date", conn)
+         df_flights_tmp['date'] = pd.to_datetime(df_flights_tmp['date'])
+         dates_flights = set(df_flights_tmp['date'].dt.date)
+    except:
+         dates_flights = set()
+
+    # 计算并集
+    all_dates = dates_traffic.union(dates_weather).union(dates_flights)
+    
+    if not all_dates:
+        # Fallback
+        start_date = pd.Timestamp('2019-01-01')
+        end_date = pd.Timestamp.now() + pd.Timedelta(days=15)
+        full_range = pd.date_range(start=start_date, end=end_date)
+    else:
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+        # 扩展到未来 15 天 (确保有预测空间)
+        target_end = pd.Timestamp.now().date() + pd.Timedelta(days=15)
+        if max_date < target_end:
+            max_date = target_end
+            
+        full_range = pd.date_range(start=min_date, end=max_date)
+
+    print(f"   时间范围: {full_range.min().date()} 到 {full_range.max().date()}")
+    df_skeleton = pd.DataFrame({'date': full_range})
     
     # 3. 合并 (Left Join onto Skeleton)
     print("3. 执行合并 (Left Join)...")
