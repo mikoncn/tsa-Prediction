@@ -115,19 +115,27 @@ def get_predictions():
         conn = sqlite3.connect('tsa_data.db')
         conn.row_factory = sqlite3.Row
         
-        from datetime import datetime
-        now_str = datetime.now().strftime('%Y-%m-%d')
+        # [IMPROVED] Identify the boundary: the latest actual TSA throughput date
+        # This ensures Jan 16-19 (if TSA is lagging) are treated as "Future/Forecast" in UI
+        query_max_actual = "SELECT max(date) FROM traffic WHERE throughput IS NOT NULL"
+        max_actual_row = conn.execute(query_max_actual).fetchone()
+        boundary_date = max_actual_row[0] if (max_actual_row and max_actual_row[0]) else None
+        
+        if not boundary_date:
+            from datetime import datetime
+            boundary_date = datetime.now().strftime('%Y-%m-%d')
+            
+        print(f"   [API] Detection Boundary for Forecast: > {boundary_date}")
         
         # 1. 加载未来预测 (Forecast) - From SQLite 'prediction_history'
-        # Logic: Get predictions for Date >= Today
-        # Logic: Get predictions for Date >= Today
+        # Logic: Get predictions for Date > Latest Actual Date
         query_forecast = """
             SELECT target_date, predicted_throughput, model_run_date, 
                    weather_index, is_holiday, flight_volume, holiday_name 
             FROM prediction_history 
-            WHERE target_date >= ?
+            WHERE target_date > ?
         """
-        df_preds = pd.read_sql(query_forecast, conn, params=(now_str,))
+        df_preds = pd.read_sql(query_forecast, conn, params=(boundary_date,))
         
         if not df_preds.empty:
             # Dedupe: keep latest model_run_date for each target_date
@@ -152,9 +160,9 @@ def get_predictions():
             SELECT target_date, predicted_throughput, model_run_date, 
                    weather_index, is_holiday, flight_volume
             FROM prediction_history 
-            WHERE target_date < ?
+            WHERE target_date <= ?
         """
-        df_hist = pd.read_sql(query_hist, conn, params=(now_str,))
+        df_hist = pd.read_sql(query_hist, conn, params=(boundary_date,))
         
         # [FIX] Generate 'History' (Orange Line) separately from Validation
         # History should show ALL past predictions, even if we don't have actuals yet.

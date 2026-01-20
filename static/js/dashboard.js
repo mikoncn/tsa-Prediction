@@ -1,6 +1,8 @@
 let chart;
 let allData = [];
 const availableYears = new Set();
+let currentRawOffset = 0;
+let isFirstLoadRaw = true;
 
 // 初始化 Chart.js 图表
 function initChart() {

@@ -194,21 +194,38 @@ def backfill(days_to_backfill=45):
             PRIMARY KEY (date, airport)
         )
     ''')
-    existing = pd.read_sql("SELECT date, airport FROM flight_stats", conn)
+    existing = pd.read_sql("SELECT date, airport, arrival_count FROM flight_stats", conn)
     conn.close()
     
-    existing_set = set(zip(existing['date'], existing['airport']))
+    # 构建：(日期, 机场) -> 航班数 的映射，用于质量检测
+    existing_map = { (row['date'], row['airport']): row['arrival_count'] for _, row in existing.iterrows() }
     
     tasks = []
+    # 质量阈值：美国枢纽机场单日抵达量若低于 50，基本判定为抓取残片或 API 漏数
+    QUALITY_THRESHOLD = 50 
+    
     for d_str in dates_to_check:
-        # 特殊逻辑：1月14日和15日曾受旧版时区 Bug 影响（数据腰斩），必须强行重新下载
-        is_suspect_date = (d_str == '2026-01-14' or d_str == '2026-01-15')
+        # [NEW] 前向扫频逻辑：对最近 3 天的数据强制重新下载，以应对 OpenSky 官方的延迟修正
+        # 将日期字符串转为 offset
+        dt_obj = datetime.strptime(d_str, "%Y-%m-%d").date()
+        is_very_recent = (today - dt_obj).days <= 3
         
         for icao in AIRPORTS:
-            if is_suspect_date or (d_str, icao) not in existing_set:
+            count = existing_map.get((d_str, icao))
+            
+            # 判定是否需要重新抓取：
+            # 1. 根本没数据
+            # 2. 存在已知 Bug 日期 (1月14-15)
+            # 3. 数据质量极低 (脏数据锁死)
+            # 4. 处于“前向扫频”窗口内（最近 3 天，确保最高精度）
+            is_dirty = count is not None and count < QUALITY_THRESHOLD
+            
+            if count is None or is_dirty or is_very_recent:
+                if is_dirty:
+                    print(f"   [检测] 发现脏数据: {icao} on {d_str} (Count: {count})，准备重刷。")
                 tasks.append((d_str, icao))
     
-    print(f"=== 待处理任务总数: {len(tasks)} ===")
+    print(f"=== 待处理任务总数: {len(tasks)} (含脏数据重刷与前向扫频) ===")
     
     batch = []
     for i, (d_str, icao) in enumerate(tasks):
