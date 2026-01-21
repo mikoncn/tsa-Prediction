@@ -234,12 +234,9 @@ def get_predictions():
         
     return jsonify(result)
  
-# API V2: 安全导出待证实预测数据 (强制新链路)
+# API V2: 强控协议标头导出 (兼容所有 Flask 版本)
 @app.route('/api/v2/secure_export')
 def secure_export():
-    """
-    V2 版本：通过全新路径规避浏览器缓存，强制下发 tsa_forecast.txt。
-    """
     try:
         conn = get_db_connection()
         query = """
@@ -254,25 +251,21 @@ def secure_export():
         conn.close()
 
         if df.empty:
-            return "NO_DATA_AVAILABLE", 200
+            return "NO_DATA", 200
 
         # 构建文本内容
         lines = [f"{row['target_date']}: {int(row['predicted_throughput'])}" for _, row in df.iterrows()]
-        txt_content = "=== TSA FORECAST LIST (UNCERTAIN) ===\n" + "\n".join(lines)
+        txt_content = "=== TSA FORECAST LIST ===\n" + "\n".join(lines)
         
-        # 转换为二进制流，强制使用 utf-8-sig 确保 Windows 记事本不乱码
-        buffer = io.BytesIO()
-        buffer.write(txt_content.encode('utf-8-sig'))
-        buffer.seek(0)
+        from flask import make_response
+        # 手动构建响应对象，避开 send_file 的版本兼容性坑
+        response = make_response(txt_content.encode('utf-8-sig'))
+        response.headers['Content-Type'] = 'text/plain; charset=utf-8'
+        # [核心锁定] 手动注入标准下载标头
+        response.headers['Content-Disposition'] = 'attachment; filename=tsa_forecast.txt'
+        response.headers['Cache-Control'] = 'no-cache'
         
-        from flask import send_file
-        # 使用纯英文文件名彻底规避 Content-Disposition 标头中的中文字符兼容性问题
-        return send_file(
-            buffer,
-            as_attachment=True,
-            download_name='tsa_forecast.txt',
-            mimetype='text/plain'
-        )
+        return response
     except Exception as e:
         return str(e), 500
 

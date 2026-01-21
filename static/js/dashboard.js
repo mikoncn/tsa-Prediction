@@ -682,8 +682,7 @@ window.runChallenger = async function() {
     }
 };
 
-// [NEW] 一键导出预测数据
-// [ULTIMATE BLOB FIX] 一键导出预测数据 (Blob Force Strategy)
+// [ULTIMATE FIX] 一键导出预测数据 (Direct Link Strategy)
 window.exportPredictions = function(event) {
     if (event) event.preventDefault();
     console.log("正在唤起指挥官确认弹窗...");
@@ -691,53 +690,43 @@ window.exportPredictions = function(event) {
     if (modal) {
         modal.style.display = 'flex';
     } else {
-        alert("系统警告：确认模态框丢失，请尝试刷新页面 [Ctrl+F5]");
+        // 万一 Modal 丢失，直接触发下载
+        const confirmBtn = document.getElementById('confirmExportBtn');
+        if (confirmBtn && confirmBtn.onclick) {
+            confirmBtn.onclick();
+        } else {
+            window.location.href = '/api/v2/secure_export?t=' + Date.now();
+        }
     }
 };
 
+// 核心下载执行函数
 // 直接绑定确认逻辑
 (function bindExportConfirm() {
     const confirmBtn = document.getElementById('confirmExportBtn');
     if (confirmBtn) {
-        confirmBtn.onclick = async function() {
-            console.log("最终确认：启动 Blob 强控下载流程...");
+        confirmBtn.onclick = function() {
+            console.log("执行物理层直连下载策略...");
             const originalText = confirmBtn.innerHTML;
-            
-            try {
-                // 1. 按钮进入加载状态，反馈给长官
-                confirmBtn.innerHTML = '⌛ 正在打包数据...';
-                confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '🚀 正在启动...';
+            confirmBtn.disabled = true;
 
-                // 2. 核心战术：使用 fetch 异步抓取数据并强制要求为 Blob 格式
-                const response = await fetch('/api/v2/secure_export?t=' + Date.now());
-                if (!response.ok) throw new Error('服务器无响应');
-                
-                const blob = await response.blob();
-                
-                // 3. 构建临时二进制链接，强制控制下载文件名
-                const downloadUrl = window.URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = downloadUrl;
-                link.download = 'tsa_forecast.txt'; // <-- 这里是强控文件名的核心
-                
-                document.body.appendChild(link);
-                link.click(); // 4. 触发下载
-                
-                // 5. 战场打扫：清理内存
-                document.body.removeChild(link);
-                window.URL.revokeObjectURL(downloadUrl);
-                
-                console.log("下载指令已成功投送至浏览器下载队列。");
+            try {
+                // 采用最原始的 window.location 指向，给浏览器最清晰的头信息解析空间
+                const downloadUrl = '/api/v2/secure_export?t=' + Date.now();
+                window.location.href = downloadUrl;
+                console.log("下载指令已直接赋予 window.location。");
             } catch (e) {
-                console.error("下载失败:", e);
-                alert("❌ 指挥系统报错: " + e.message);
-            } finally {
-                // 6. 隐藏确认弹窗并复原按钮
+                console.error("下载启动失败:", e);
+            }
+
+            // 500ms 后恢复状态并关闭弹窗
+            setTimeout(() => {
                 const modal = document.getElementById('exportModal');
                 if (modal) modal.style.display = 'none';
                 confirmBtn.innerHTML = originalText;
                 confirmBtn.disabled = false;
-            }
+            }, 500); 
         };
     }
 })();

@@ -111,7 +111,7 @@
                 
                 <!-- [NEW] Export Button -->
                 <div style="flex-grow: 1;"></div>
-                <button onclick="exportPredictions(event)" class="export-btn" style="background: #28a745; color: white; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.9em; display: flex; align-items: center; gap: 6px; transition: all 0.3s; box-shadow: 0 4px 6px rgba(40, 167, 69, 0.15); margin-bottom: 10px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(40, 167, 69, 0.25)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(40, 167, 69, 0.15)';" title="导出所有最新的预测记录">
+                <button onclick="document.getElementById('exportModal').style.display='flex'" class="export-btn" style="background: #28a745; color: white; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.9em; display: flex; align-items: center; gap: 6px; transition: all 0.3s; box-shadow: 0 4px 6px rgba(40, 167, 69, 0.15); margin-bottom: 10px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(40, 167, 69, 0.25)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(40, 167, 69, 0.15)';" title="导出所有最新的预测记录">
                     📥 一键导出预测
                 </button>
             </div>
