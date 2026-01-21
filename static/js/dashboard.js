@@ -738,11 +738,13 @@ window.switchTab = function(tabName) {
     const btnVal = document.getElementById('tab-btn-validation');
     const btnRaw = document.getElementById('tab-btn-rawdata');
     const btnPoly = document.getElementById('tab-btn-polymarket');
+    const btnSync = document.getElementById('btnSyncSentiment');
 
     // Hide all
     tabVal.style.display = 'none';
     tabRaw.style.display = 'none';
     tabPoly.style.display = 'none';
+    if(btnSync) btnSync.style.display = 'none';
     
     // Reset buttons (Opacity 0.5, Grey border)
     [btnVal, btnRaw, btnPoly].forEach(btn => {
@@ -771,6 +773,7 @@ window.switchTab = function(tabName) {
         tabPoly.style.display = 'block';
         btnPoly.style.opacity = '1';
         btnPoly.style.borderColor = '#6f42c1'; // Purple for Polymarket
+        if(btnSync) btnSync.style.display = 'block';
         if (isFirstLoadPolymarket) {
             renderMarketSentiment();
             isFirstLoadPolymarket = false;
@@ -783,24 +786,52 @@ window.switchTab = function(tabName) {
 
 // --- Polymarket Rendering Logic ---
 
+async function syncSentiment() {
+    const btn = document.getElementById('btnSyncSentiment');
+    const originalText = btn.innerText;
+    
+    try {
+        btn.innerText = '⏳';
+        btn.disabled = true;
+        
+        // 1. 触发后台同步
+        const res = await fetch('/api/sync_market_sentiment', { method: 'POST' });
+        const result = await res.json();
+        
+        if (result.status === 'success') {
+            // 2. 同步成功后局部刷新渲染
+            await renderMarketSentiment();
+            console.log("Sentiment Synced Successfully");
+        } else {
+            alert("同步失败: " + result.message);
+        }
+    } catch (e) {
+        console.error(e);
+        alert("同步请求出错");
+    } finally {
+        btn.innerText = originalText;
+        btn.disabled = false;
+    }
+}
+
 async function renderMarketSentiment() {
     const container = document.getElementById('polymarket-grid');
     if(!container) return;
     
-    container.innerHTML = '<div style="text-align:center; padding:20px;">Fetching Market Data...</div>';
+    // 如果是第一次加载，显示 Loading
+    if (container.innerHTML === '') {
+        container.innerHTML = '<div style="text-align:center; padding:20px;">Fetching Market Data...</div>';
+    }
     
     try {
         const res = await fetch('/api/market_sentiment');
         const data = await res.json();
         
         container.innerHTML = '';
-        const dates = Object.keys(data).sort().reverse(); // Show newest dates first? Or upcoming? 
-        // User usually wants to see upcoming. Sort ASC.
-        // Re-sort ASC
-        dates.sort();
+        const dates = Object.keys(data).sort(); // Sort ASC to show main battleground (nearest dates) first
         
         if (dates.length === 0) {
-            container.innerHTML = '<div style="text-align:center; padding:20px;">暂无预测数据 (No Active Markets)</div>';
+            container.innerHTML = '<div style="text-align:center; padding:20px;">暂无活跃预测市场 (TSA 官网已悉数结算)</div>';
             return;
         }
         

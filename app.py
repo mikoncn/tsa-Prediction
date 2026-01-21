@@ -298,6 +298,7 @@ def update_data():
         
         steps = [
             {'name': '抓取最新TSA数据', 'cmd': [sys.executable, '-m', 'src.etl.build_tsa_db', '--latest'], 'timeout': 30},
+            {'name': '同步航班数据', 'cmd': [sys.executable, '-m', 'src.etl.fetch_opensky', '--recent'], 'timeout': 60},
             {'name': '同步天气特征', 'cmd': [sys.executable, '-m', 'src.etl.get_weather_features'], 'timeout': 45},
             {'name': '合并数据库', 'cmd': [sys.executable, '-m', 'src.etl.merge_db'], 'timeout': 30},
             {'name': '全量模型重训(Persistence)', 'cmd': [sys.executable, '-m', 'src.models.train_xgb'], 'timeout': 120}
@@ -430,14 +431,16 @@ def run_challenger():
 
 @app.route('/api/market_sentiment')
 def get_market_sentiment():
-    """获取 Polymarket 市场情绪 (含 6H 涨跌幅)"""
+    """获取 Polymarket 市场情绪 (仅显示 TSA 官网尚未出分/未结盘的市场)"""
     try:
         conn = get_db_connection()
         
-        # 1. 获取每个 (date, outcome) 的最新价格
-        # 使用窗口函数或 Group By Max ID (SQLite简单处理)
-        # 这里我们需要针对每个 target_date + outcome_label 分组
+        # 1. 识别已结盘日期 (TSA 官网已出分)
+        # 即使日期过了，只要 TSA 没出分，市场就不该下架
+        query_resolved = "SELECT date FROM traffic WHERE throughput IS NOT NULL"
+        resolved_dates = [row['date'] for row in conn.execute(query_resolved).fetchall()]
         
+        # 2. 获取每个 (date, outcome) 的最新快照
         query_latest = """
             SELECT target_date, outcome_label, price as current_price, fetched_at, market_slug
             FROM market_sentiment_snapshots 
@@ -448,16 +451,13 @@ def get_market_sentiment():
             )
             ORDER BY target_date ASC, outcome_label ASC
         """
-        
         rows_latest = conn.execute(query_latest).fetchall()
         
-        # 2. 获取 ~6小时前的价格 (或最接近的旧数据)
-        # 简单策略：查找 fetched_at <= now - 6h 的最新一条
-        # 但这种对于批量查询很慢。
-        # 优化策略：Load full recent history in memory (volume is low enough) OR single complex query.
-        # 鉴于数据量每天仅几百条，载入内存处理最快。
+        # 3. 过滤逻辑：剔除已结盘日期
+        # [NEW] 允许保留最近 1 个已结盘日期作为参考，其他的全部剔除
+        filtered_latest = [r for r in rows_latest if r['target_date'] not in resolved_dates]
         
-        # Let's use Python to compute diffs from raw rows for simplicity and robustness
+        # 4. 获取 ~6小时前的价格用于对标增量
         query_all_recent = """
             SELECT target_date, outcome_label, price, fetched_at
             FROM market_sentiment_snapshots
@@ -470,9 +470,7 @@ def get_market_sentiment():
         from datetime import datetime
         import pandas as pd
         
-        # Group by key
-        history_map = {} # Key: "date|outcome" -> List of (dt, price)
-        
+        history_map = {}
         for r in all_rows:
             key = f"{r['target_date']}|{r['outcome_label']}"
             fetched_dt = datetime.strptime(r['fetched_at'], '%Y-%m-%d %H:%M:%S')
@@ -481,63 +479,36 @@ def get_market_sentiment():
             history_map[key].append((fetched_dt, r['price']))
             
         results = []
-        
-        # Process latest rows
-        now = datetime.utcnow() # SQLite usually UTC
-        # If SQLite fetched_at is local, might need adjustment. defaulted to CURRENT_TIMESTAMP (UTC).
-        
-        # Re-iterate latest rows from SQL (or compute from history map latest)
-        # Using SQL latest is safer
-        for r in rows_latest:
+        for r in filtered_latest:
             key = f"{r['target_date']}|{r['outcome_label']}"
             curr_price = r['current_price']
-            slug = r['market_slug']
-            
-            # Find 6h ago price
-            # Ideal: Price at (Now - 6h)
-            # Logic: Find closest snapshot that is older than 5.5h? Or just finding the one closest to 6h mark?
-            # Let's try to find a data point between 5h and 7h ago.
-            # If not found, fallback to oldest available within 24h?
             
             change_6h = 0.0
-            
             if key in history_map:
                 points = history_map[key]
-                # Points are sorted ASC by time
-                # We want point closest to (latest_time - 6h)
-                
-                # Assume latest fetch was just now-ish
                 latest_ts = points[-1][0]
                 target_ts = latest_ts - pd.Timedelta(hours=6)
                 
                 closest_price = None
                 min_diff_seconds = 999999
-                
                 for (ts, p) in points:
-                    # check difference
                     diff = abs((ts - target_ts).total_seconds())
-                    # We only care if the point is ACTUALLY in the past relative to latest
-                    # and roughly around the 6h mark (e.g., within 3h to 9h window?)
-                    # Simplification: Just find the record closest to target_ts
-                    
                     if diff < min_diff_seconds:
                         min_diff_seconds = diff
                         closest_price = p
                 
-                # Calculate change
                 if closest_price is not None:
                      change_6h = curr_price - closest_price
                      
             results.append({
                 'target_date': r['target_date'],
-                'market_slug': slug,
+                'market_slug': r['market_slug'],
                 'outcome': r['outcome_label'],
                 'price': curr_price,
                 'change_6h': round(change_6h, 3),
                 'fetched_at': r['fetched_at']
             })
             
-        # Group by Date for frontend convenience
         grouped = {}
         for item in results:
             d = item['target_date']
@@ -549,6 +520,30 @@ def get_market_sentiment():
     except Exception as e:
         print(f"Error in market_sentiment: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sync_market_sentiment', methods=['POST'])
+def sync_market_sentiment():
+    """实时突击同步：仅抓取当前未结盘的活跃市场赔率"""
+    try:
+        import subprocess
+        import sys
+        
+        # 运行爬虫脚本，并传入 --active 参数（待实现）
+        # 如果爬虫暂不支持 --active，先全量同步 T-1 到 T+7
+        print("⚡ 正在执行实时赔率同步 (Targeted Sync)...")
+        result = subprocess.run(
+            [sys.executable, '-m', 'src.etl.fetch_polymarket', '--recent'], 
+            capture_output=True, text=True, encoding='utf-8', errors='replace',
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            return jsonify({'status': 'success', 'message': '赔率已实时同步'})
+        else:
+            return jsonify({'status': 'error', 'message': result.stderr}), 500
+            
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)

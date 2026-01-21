@@ -164,13 +164,26 @@ def save_snapshots(snapshots):
 def main():
     print("=== Polymarket ETL Started ===")
     
-    # Range: Today - 3 days to Today + 10 days
-    # Capture recent unresolved markets
-    start_dt = datetime.date.today() - timedelta(days=3)
+    # 解析参数
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--recent', action='store_true', help='Only fetch from T-1 to T+3')
+    args = parser.parse_args()
+    
+    if args.recent:
+        # 实时同步模式：仅覆盖 T-1 到 T+3 (重点观测区)
+        start_dt = datetime.date.today() - timedelta(days=1)
+        days_to_fetch = 5
+        print(f"[Quick Sync] Fetching 5 days from {start_dt}")
+    else:
+        # 全量更新模式：T-3 到 T+10
+        start_dt = datetime.date.today() - timedelta(days=3)
+        days_to_fetch = 14
+        print(f"[Full Sync] Fetching 14 days from {start_dt}")
     
     snapshots = []
     
-    for i in range(14): # Total 14 days window (T-3 to T+10)
+    for i in range(days_to_fetch):
         target_dt = start_dt + timedelta(days=i)
         target_str = target_dt.strftime("%Y-%m-%d")
         
