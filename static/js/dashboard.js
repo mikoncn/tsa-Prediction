@@ -1,3 +1,4 @@
+console.log("--- 指挥中心 V2.0 脚本已装载 ---");
 let chart;
 let allData = [];
 const availableYears = new Set();
@@ -204,8 +205,8 @@ async function loadData() {
         
         // Trigger Raw Data Load (Default Page 1) if not already triggered by setQuickRange?
         // Actually setQuickRange just sets Chart zoom. 
-        // We explicitly call loadRawData() now to ensure it uses the populated holiday index.
-        loadRawData(1);
+        // We explicitly call loadRawData(true) to ensure it resets and uses the latest merged data.
+        loadRawData(true);
         
     } catch (error) {
         console.error('Error loading data:', error);
@@ -681,6 +682,66 @@ window.runChallenger = async function() {
     }
 };
 
+// [NEW] 一键导出预测数据
+// [ULTIMATE BLOB FIX] 一键导出预测数据 (Blob Force Strategy)
+window.exportPredictions = function(event) {
+    if (event) event.preventDefault();
+    console.log("正在唤起指挥官确认弹窗...");
+    const modal = document.getElementById('exportModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    } else {
+        alert("系统警告：确认模态框丢失，请尝试刷新页面 [Ctrl+F5]");
+    }
+};
+
+// 直接绑定确认逻辑
+(function bindExportConfirm() {
+    const confirmBtn = document.getElementById('confirmExportBtn');
+    if (confirmBtn) {
+        confirmBtn.onclick = async function() {
+            console.log("最终确认：启动 Blob 强控下载流程...");
+            const originalText = confirmBtn.innerHTML;
+            
+            try {
+                // 1. 按钮进入加载状态，反馈给长官
+                confirmBtn.innerHTML = '⌛ 正在打包数据...';
+                confirmBtn.disabled = true;
+
+                // 2. 核心战术：使用 fetch 异步抓取数据并强制要求为 Blob 格式
+                const response = await fetch('/api/v2/secure_export?t=' + Date.now());
+                if (!response.ok) throw new Error('服务器无响应');
+                
+                const blob = await response.blob();
+                
+                // 3. 构建临时二进制链接，强制控制下载文件名
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = 'tsa_forecast.txt'; // <-- 这里是强控文件名的核心
+                
+                document.body.appendChild(link);
+                link.click(); // 4. 触发下载
+                
+                // 5. 战场打扫：清理内存
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(downloadUrl);
+                
+                console.log("下载指令已成功投送至浏览器下载队列。");
+            } catch (e) {
+                console.error("下载失败:", e);
+                alert("❌ 指挥系统报错: " + e.message);
+            } finally {
+                // 6. 隐藏确认弹窗并复原按钮
+                const modal = document.getElementById('exportModal');
+                if (modal) modal.style.display = 'none';
+                confirmBtn.innerHTML = originalText;
+                confirmBtn.disabled = false;
+            }
+        };
+    }
+})();
+
 // ==========================================
 // [NEW] Raw Data Panel Logic (生数据 - Clean Light Mode)
 // ==========================================
@@ -765,7 +826,7 @@ window.switchTab = function(tabName) {
         btnRaw.style.opacity = '1';
         btnRaw.style.borderColor = '#17a2b8';
         if (isFirstLoadRaw) {
-             window.loadRawData();
+             window.loadRawData(true);
              isFirstLoadRaw = false;
         }
         
@@ -913,7 +974,12 @@ function renderPolymarketCard(date, items) {
     return card;
 }
 
-window.loadRawData = async function() {
+window.loadRawData = async function(isReset = false) {
+    if (isReset) {
+        currentRawOffset = 0;
+        document.getElementById('rawTableBody').innerHTML = '';
+    }
+    
     const limit = currentRawOffset === 0 ? 15 : 50;
     
     try {
@@ -959,7 +1025,7 @@ function translateHoliday(name) {
 function renderRawTable(data) {
     const tbody = document.getElementById('rawTableBody');
     
-    data.forEach(row => {
+    data.forEach((row, index) => {
         const tr = document.createElement('tr');
         
         // 1. Date (Chinese + Date)
@@ -1015,20 +1081,23 @@ function renderRawTable(data) {
             </div>
         `;
 
-        // 5. Flight Volume (Raw Number) - [FIX] Full usage, no 'k'
+        // 5. Flight Volume (Raw Number) - [FIX] Daily Change (T vs T-1) instead of vs MA7
         let flightHtml = '-';
         if (row.flight_volume > 0) {
-            // Calculate Diff vs MA7
             let diffHtml = '';
-            if (row.flight_ma_7 > 0) {
-                 const diff = row.flight_volume - row.flight_ma_7;
+            // 获取数组中的下一项（即前一天的数据，因为数据是按日期倒序排列的）
+            const prevRow = data[index + 1];
+            if (prevRow && prevRow.flight_volume > 0) {
+                 const diff = row.flight_volume - prevRow.flight_volume;
                  const sign = diff > 0 ? '+' : '';
                  const color = diff > 0 ? '#28a745' : '#dc3545';
-                 diffHtml = `<div class="flight-diff" style="color:${color}">${sign}${parseInt(diff)}</div>`;
+                 // 增加 Tooltip 提示用户这是日环比
+                 diffHtml = `<div class="flight-diff" style="color:${color}" title="较前日变动">${sign}${parseInt(diff)}</div>`;
             }
+            
             flightHtml = `
                 <div class="flight-cell">
-                    <div>${row.flight_volume.toLocaleString()}</div>
+                    <div style="font-weight:500;">${row.flight_volume.toLocaleString()}</div>
                     ${diffHtml}
                 </div>
             `;

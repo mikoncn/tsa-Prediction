@@ -2,6 +2,7 @@ from flask import Flask, render_template, jsonify
 import sqlite3
 import pandas as pd
 import os
+import io
 
 app = Flask(__name__)
 
@@ -232,6 +233,48 @@ def get_predictions():
         result['history'] = []
         
     return jsonify(result)
+ 
+# API V2: 安全导出待证实预测数据 (强制新链路)
+@app.route('/api/v2/secure_export')
+def secure_export():
+    """
+    V2 版本：通过全新路径规避浏览器缓存，强制下发 tsa_forecast.txt。
+    """
+    try:
+        conn = get_db_connection()
+        query = """
+            SELECT p.target_date, p.predicted_throughput
+            FROM prediction_history p
+            LEFT JOIN traffic t ON p.target_date = t.date
+            WHERE (t.throughput IS NULL OR t.throughput = 0)
+            AND p.id IN (SELECT MAX(id) FROM prediction_history GROUP BY target_date)
+            ORDER BY p.target_date ASC
+        """
+        df = pd.read_sql(query, conn)
+        conn.close()
+
+        if df.empty:
+            return "NO_DATA_AVAILABLE", 200
+
+        # 构建文本内容
+        lines = [f"{row['target_date']}: {int(row['predicted_throughput'])}" for _, row in df.iterrows()]
+        txt_content = "=== TSA FORECAST LIST (UNCERTAIN) ===\n" + "\n".join(lines)
+        
+        # 转换为二进制流，强制使用 utf-8-sig 确保 Windows 记事本不乱码
+        buffer = io.BytesIO()
+        buffer.write(txt_content.encode('utf-8-sig'))
+        buffer.seek(0)
+        
+        from flask import send_file
+        # 使用纯英文文件名彻底规避 Content-Disposition 标头中的中文字符兼容性问题
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name='tsa_forecast.txt',
+            mimetype='text/plain'
+        )
+    except Exception as e:
+        return str(e), 500
 
 # API: 点击页面按钮时手动触发模型重新训练和预测
 @app.route('/api/run_prediction', methods=['POST'])
@@ -297,11 +340,11 @@ def update_data():
         print("🔄 开始数据更新流程...")
         
         steps = [
-            {'name': '抓取最新TSA数据', 'cmd': [sys.executable, '-m', 'src.etl.build_tsa_db', '--latest'], 'timeout': 30},
-            {'name': '同步航班数据', 'cmd': [sys.executable, '-m', 'src.etl.fetch_opensky', '--recent'], 'timeout': 60},
-            {'name': '同步天气特征', 'cmd': [sys.executable, '-m', 'src.etl.get_weather_features'], 'timeout': 45},
-            {'name': '合并数据库', 'cmd': [sys.executable, '-m', 'src.etl.merge_db'], 'timeout': 30},
-            {'name': '全量模型重训(Persistence)', 'cmd': [sys.executable, '-m', 'src.models.train_xgb'], 'timeout': 120}
+            {'name': '抓取最新TSA数据', 'cmd': [sys.executable, '-m', 'src.etl.build_tsa_db', '--latest'], 'timeout': 45},
+            {'name': '同步天气特征', 'cmd': [sys.executable, '-m', 'src.etl.get_weather_features'], 'timeout': 30},
+            {'name': '同步航班数据', 'cmd': [sys.executable, '-m', 'src.etl.fetch_opensky', '--recent', '--fail-fast'], 'timeout': 150},
+            {'name': '合并数据库', 'cmd': [sys.executable, '-m', 'src.etl.merge_db'], 'timeout': 60},
+            {'name': '全量模型重训(Persistence)', 'cmd': [sys.executable, '-m', 'src.models.train_xgb'], 'timeout': 180}
         ]
         
         results = []

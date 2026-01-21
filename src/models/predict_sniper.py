@@ -345,9 +345,11 @@ def train_and_predict(target_date_str):
             
             for icao in top_airports:
                 count = fetch_opensky.fetch_arrival_count(target_date_str, icao)
-                if count:
+                if count and count >= 10:
                     total_jit += count
                     jit_data.append((target_date_str, icao, count))
+                elif count:
+                    print(f"   [Sniper-JIT] 丢弃低质量数据: {icao} ({count} 架次)")
             
             if total_jit > flight_volume:
                 print(f"   [JIT成功] 现场抓取到 {total_jit} 架次，更新数据库...")

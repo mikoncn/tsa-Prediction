@@ -60,6 +60,22 @@
                 <button onclick="document.getElementById('sniperModal').style.display = 'none'" style="margin-top: 25px; padding: 10px 30px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">关闭</button>
             </div>
         </div>
+        
+        <!-- 导出确认模态框 -->
+        <div id="exportModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+            <div style="background: white; padding: 35px; border-radius: 16px; width: 450px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.2); border: 1px solid #eee;">
+                <div style="font-size: 50px; margin-bottom: 20px;">📥</div>
+                <h2 style="margin-bottom: 15px; color: #333;">导出预测清单</h2>
+                <p style="color: #666; font-size: 1.1em; line-height: 1.6; margin-bottom: 30px;">
+                    即将生成并下载最新的<span style="color: #28a745; font-weight: bold;">“待证实客流预测清单”</span>。<br>
+                    格式为 TXT，包含所有尚未公布实际值的未来预判。
+                </p>
+                <div style="display: flex; gap: 15px; justify-content: center;">
+                    <button id="confirmExportBtn" style="padding: 12px 35px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em; transition: all 0.2s;" onmouseover="this.style.backgroundColor='#218838'" onmouseout="this.style.backgroundColor='#28a745'">确认导出</button>
+                    <button onclick="document.getElementById('exportModal').style.display = 'none'" style="padding: 12px 35px; background: #f8f9fa; color: #666; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em; transition: all 0.2s;" onmouseover="this.style.backgroundColor='#eee'" onmouseout="this.style.backgroundColor='#f8f9fa'">取消</button>
+                </div>
+            </div>
+        </div>
 
         <!-- 统计面板 (IDs 必须与 dashboard.js 一致) -->
         <div class="stats-panel" style="display: flex; justify-content: space-around; margin-top: 20px; text-align: center;">
@@ -85,13 +101,19 @@
         <!-- 预测回测表格 & 生数据面板 -->
         <div class="review-panel" style="margin-top: 40px;">
 
-            <div class="panel-tabs" style="display: flex; gap: 20px; border-bottom: 2px solid #eee; margin-bottom: 20px;">
+            <div class="panel-tabs" style="display: flex; gap: 20px; border-bottom: 2px solid #eee; margin-bottom: 20px; align-items: center;">
                 <h2 id="tab-btn-validation" onclick="switchTab('validation')" style="border-left: 5px solid #28a745; padding-left: 10px; cursor: pointer; margin-bottom: 10px; opacity: 1;">🛡️ 模型实战回测</h2>
                 <h2 id="tab-btn-rawdata" onclick="switchTab('rawdata')" style="border-left: 5px solid #ccc; padding-left: 10px; cursor: pointer; margin-bottom: 10px; opacity: 0.5;">🧬 全息生数据 (Raw Matrix)</h2>
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
                     <h2 id="tab-btn-polymarket" onclick="switchTab('polymarket')" style="border-left: 5px solid #ccc; padding-left: 10px; cursor: pointer; margin-bottom: 0; opacity: 0.5;">🔮 市场预测 (Sentiment)</h2>
                     <button id="btnSyncSentiment" onclick="syncSentiment()" style="display:none; background: #6f42c1; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; font-size: 14px;" title="实时刷新赔率">🔄</button>
                 </div>
+                
+                <!-- [NEW] Export Button -->
+                <div style="flex-grow: 1;"></div>
+                <button onclick="exportPredictions(event)" class="export-btn" style="background: #28a745; color: white; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.9em; display: flex; align-items: center; gap: 6px; transition: all 0.3s; box-shadow: 0 4px 6px rgba(40, 167, 69, 0.15); margin-bottom: 10px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(40, 167, 69, 0.25)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(40, 167, 69, 0.15)';" title="导出所有最新的预测记录">
+                    📥 一键导出预测
+                </button>
             </div>
 
             <!-- Tab 1: Validation -->

@@ -147,10 +147,8 @@ def main():
         df_flights = pd.read_sql("SELECT date, SUM(arrival_count) as flight_volume FROM flight_stats GROUP BY date", conn)
         df_flights['date'] = pd.to_datetime(df_flights['date'])
         
-        # [NEW] Filter out low quality data (e.g. partial fetches)
-        # Threshold: 2000 flights (Major hubs daily sum should be >> 2000)
-        # Keeps user from seeing "27 flights"
-        df_flights = df_flights[df_flights['flight_volume'] > 2000]
+        # [REMOVED] Thresholding logic. Even partial data should be shown in Raw Matrix.
+        # df_flights = df_flights[df_flights['flight_volume'] > 2000]
         
         # Calculate 7-day Moving Average for flights (Baseload)
         df_flights = df_flights.sort_values('date')

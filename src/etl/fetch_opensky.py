@@ -218,9 +218,9 @@ def backfill(days_to_backfill=45):
             # 2. 存在已知 Bug 日期 (1月14-15)
             # 3. 数据质量极低 (脏数据锁死)
             # 4. 处于“前向扫频”窗口内（最近 3 天，确保最高精度）
+            # 50 左右的数据判定为脏数据或残片，需要重刷。如果数据量达标且非空，则跳过抓取。
             is_dirty = count is not None and count < QUALITY_THRESHOLD
-            
-            if count is None or is_dirty or is_very_recent:
+            if count is None or is_dirty:
                 if is_dirty:
                     print(f"   [检测] 发现脏数据: {icao} on {d_str} (Count: {count})，准备重刷。")
                 tasks.append((d_str, icao))
@@ -234,7 +234,12 @@ def backfill(days_to_backfill=45):
         count = fetch_arrival_count(d_str, icao)
         
         if count is not None:
-            batch.append((d_str, icao, count))
+            # [USER RULE] 如果抓取到的数据是个位数/极低（如 < 10），说明官方还没出全，此时不存入 DB，
+            # 这样下次更新时由于库里没数，还会再次触发抓取，直到抓到正常数据。
+            if count >= 10:
+                batch.append((d_str, icao, count))
+            else:
+                print(f"   [丢弃] {icao} 在 {d_str} 的数据仅为 {count}，判定为未就绪，暂不落库。")
         
         # 批量保存以提升 IO 性能（每 10 次请求执行一次 Commit）
         if len(batch) >= 10:

@@ -29,7 +29,17 @@ AIRPORTS = {
 }
 
 # 3. 时间范围
-START_DATE = "2019-01-01"
+# [OPTIMIZATION] 默认仅抓取最近 30 天的数据（日常更新模式）
+# 只有在传入 --full 参数时，才执行从 2019 年开始的全量回溯
+import sys
+if '--full' in sys.argv:
+    START_DATE = "2019-01-01"
+    print("   [模式] 全量模式：从 2019 年开始回溯所有历史天气...")
+else:
+    # 默认回档 30 天，足以覆盖任何中间缺失或修正
+    START_DATE = (datetime.date.today() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+    print(f"   [模式] 日常增量模式：仅同步最近 30 天数据 (Start: {START_DATE})")
+
 # 昨天
 YESTERDAY = (datetime.date.today() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 # 今天
@@ -183,7 +193,7 @@ try:
         conn.close()
 
     save_weather_to_db(full_df, weather_index_df)
-    print("✅ 天气数据数据库化完成。")
+    print("OK 天气数据数据库化完成。")
     
     # 7. 检查 2026-01-10 (用户指定日期)
     print("\n=== 检查 2026-01-10 原始数据与评分 ===")
