@@ -3,66 +3,71 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TSA 旅客吞吐量历史数据</title>
+    <title>TSA 旅客吞吐量 - Mikon AI Scout (Vue)</title>
     <!-- 引入外部样式 -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     
-    <!-- 依赖库 -->
+    <!-- 依赖库 (Chart.js need to be global for the component wrapper to find it easily, or import in component) -->
+    <!-- Since we are using ESM for Vue, we can load Chart.js via CDN in head global or import in component. 
+         My component code uses `new Chart()`, implying global. -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
-    <!-- Annotation Plugin (关键: 必须引入) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
+
+    <style>
+        [v-cloak] { display: none; }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.5s; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+    </style>
 </head>
 <body>
-    <div class="container">
+{% raw %}
+    <div id="app" class="container" v-cloak>
         <h1>TSA 旅客吞吐量 - Mikon AI Scout</h1>
         
-        <div class="controls">
-            <!-- 快捷按钮 -->
-            <button onclick="setQuickRange(365)" class="active">最近1年</button>
-            <button onclick="setQuickRange(180)">最近半年</button>
-            <button onclick="setQuickRange(30)">最近30天</button>
-            
-            <div class="divider"></div>
-            
-            <button id="btnRunPred" onclick="runPrediction()" style="background-color: #28a745; color: white;">🚀 立即预测</button>
-            <button id="btnUpdateData" onclick="updateData()" style="background-color: #17a2b8; color: white; margin-left: 10px;">🔄 更新数据</button>
-            <button id="btnRunSniper" onclick="runSniperModel()" style="background-color: #dc3545; color: white; margin-left: 10px; font-weight: bold;">🎯 智能狙击 (Smart Sniper)</button>
-            
-            <!-- [NEW] Challenger Button -->
-            <button id="btnChallenger" onclick="runChallenger()" style="background-color: #6f42c1; color: white; margin-left: 10px; font-weight: bold;">🟣 深度对决 (Deep Comparison)</button>
+        <!-- Controls Component -->
+        <control-panel 
+            :years="years"
+            @update-range="setQuickRange"
+            @run-prediction="runPrediction"
+            @update-data="updateData"
+            @run-sniper="runSniper"
+            @run-challenger="runChallenger"
+            @filter-year="filterYear"
+            @reset-zoom="chartRef && chartRef.resetZoom()"
+        ></control-panel>
 
-            <!-- 年份筛选 -->
-            <select id="yearSelect">
-                <!-- JS 动态填充 -->
-            </select>
-
-            <button onclick="chart.resetZoom()" style="margin-left: 20px;">重置缩放</button>
-        </div>
-
-        <div class="chart-container">
-            <canvas id="trafficChart"></canvas>
-        </div>
+        <!-- Chart Component -->
+        <traffic-chart 
+            ref="chartRef"
+            :chart-data="currentChartData"
+            :predictions="predictions"
+            :challenger-data="challengerData"
+            :annotations="currentAnnotations"
+        ></traffic-chart>
+        
         <p class="hint">🖱️ 提示：点击红点查看详情 | 滚轮缩放 | 拖拽平移</p>
         
-        <!-- 狙击模型结果模态框 -->
-        <div id="sniperModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <!-- Sniper Modal (Inline) -->
+        <div v-if="showSniperModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;">
             <div style="background: white; padding: 30px; border-radius: 8px; width: 400px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                 <h2 style="color: #dc3545;">🎯 狙击模型结果 (Sniper)</h2>
                 <div style="margin: 20px 0; border-bottom: 1px solid #eee; padding-bottom: 20px;">
-                    <p style="font-size: 1.1em; color: #666;">目标日期: <span id="sniperDate" style="font-weight: bold;">-</span></p>
-                    <h1 id="sniperValue" style="font-size: 2.5em; color: #007bff; margin: 10px 0;">-</h1>
-                    <p style="color: #666;">实时飞行量: <span id="sniperFlights" style="font-weight: bold;">-</span> 架次</p>
+                    <p style="font-size: 1.1em; color: #666;">目标日期: <span style="font-weight: bold;">{{ sniperResult.date }}</span></p>
+                    <h1 style="font-size: 2.5em; color: #007bff; margin: 10px 0;">{{ (sniperResult.value / 1000000).toFixed(2) }}M</h1>
+                    <p style="color: #666;">实时飞行量: <span style="font-weight: bold;">{{ sniperResult.flights.toLocaleString() }}</span> 架次</p>
                 </div>
-                <div id="sniperBadge" style="background: #28a745; color: white; padding: 5px 10px; border-radius: 4px; display: inline-block; font-size: 0.9em;">✅ 实时同步 (High Precision)</div>
-                <button onclick="document.getElementById('sniperModal').style.display = 'none'" style="margin-top: 25px; padding: 10px 30px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">关闭</button>
+                <div :style="{ background: sniperResult.is_fallback ? '#ffc107' : '#28a745', color: sniperResult.is_fallback ? '#000' : '#fff' }" style="padding: 5px 10px; border-radius: 4px; display: inline-block; font-size: 0.9em;">
+                    {{ sniperResult.is_fallback ? '⚠️ 降级模式 (Fallback)' : '✅ 实时同步 (High Precision)' }}
+                </div>
+                <button @click="showSniperModal = false" style="margin-top: 25px; padding: 10px 30px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">关闭</button>
             </div>
         </div>
         
-        <!-- 导出确认模态框 -->
-        <div id="exportModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+        <!-- Export Modal (Inline) -->
+        <div v-if="showModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
             <div style="background: white; padding: 35px; border-radius: 16px; width: 450px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.2); border: 1px solid #eee;">
                 <div style="font-size: 50px; margin-bottom: 20px;">📥</div>
                 <h2 style="margin-bottom: 15px; color: #333;">导出预测清单</h2>
@@ -71,199 +76,72 @@
                     格式为 TXT，包含所有尚未公布实际值的未来预判。
                 </p>
                 <div style="display: flex; gap: 15px; justify-content: center;">
-                    <button id="confirmExportBtn" style="padding: 12px 35px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em; transition: all 0.2s;" onmouseover="this.style.backgroundColor='#218838'" onmouseout="this.style.backgroundColor='#28a745'">确认导出</button>
-                    <button onclick="document.getElementById('exportModal').style.display = 'none'" style="padding: 12px 35px; background: #f8f9fa; color: #666; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em; transition: all 0.2s;" onmouseover="this.style.backgroundColor='#eee'" onmouseout="this.style.backgroundColor='#f8f9fa'">取消</button>
+                    <a :href="'/api/v2/secure_export?t=' + Date.now()" @click="showModal = false" target="_blank" style="padding: 12px 35px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em; text-decoration: none;">确认导出</a>
+                    <button @click="showModal = false" style="padding: 12px 35px; background: #f8f9fa; color: #666; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em;">取消</button>
                 </div>
             </div>
         </div>
 
-        <!-- 统计面板 (IDs 必须与 dashboard.js 一致) -->
-        <div class="stats-panel" style="display: flex; justify-content: space-around; margin-top: 20px; text-align: center;">
-            <div class="stat-card">
-                <h3>最新客流 (<span id="latestDate">-</span>)</h3>
-                <div class="value" id="latestPassengers" style="font-size: 1.5em; font-weight: bold; color: #007bff;">-</div>
-            </div>
-            <div class="stat-card">
-                <h3>前日客流 (<span id="prevDate">-</span>)</h3>
-                <div class="value" id="prevPassengers" style="font-size: 1.5em; font-weight: bold; color: #6c757d;">-</div>
-            </div>
-            <div class="stat-card" style="border: 2px solid #28a745; background: #f0fff4; min-width: 250px;">
-                <h3>
-                    预测客流 
-                    <select id="predDateSelect" style="font-size: 0.8em; padding: 2px; margin-left: 5px; border-radius: 4px; border: 1px solid #ccc;">
-                        <option value="">Loading...</option>
-                    </select>
-                </h3>
-                <div class="value" id="predPassengers" style="font-size: 1.5em; font-weight: bold; color: #28a745;">Loading...</div>
-            </div>
-        </div>
+        <!-- Stats Panel -->
+        <stats-panel 
+            :stats="stats" 
+            :prediction="predictionState"
+            @update:selected-date="onPredictionDateChange"
+        ></stats-panel>
 
-        <!-- 预测回测表格 & 生数据面板 -->
+        <!-- Review Panel -->
         <div class="review-panel" style="margin-top: 40px;">
-
             <div class="panel-tabs" style="display: flex; gap: 20px; border-bottom: 2px solid #eee; margin-bottom: 20px; align-items: center;">
-                <h2 id="tab-btn-validation" onclick="switchTab('validation')" style="border-left: 5px solid #28a745; padding-left: 10px; cursor: pointer; margin-bottom: 10px; opacity: 1;">🛡️ 模型实战回测</h2>
-                <h2 id="tab-btn-rawdata" onclick="switchTab('rawdata')" style="border-left: 5px solid #ccc; padding-left: 10px; cursor: pointer; margin-bottom: 10px; opacity: 0.5;">🧬 全息生数据 (Raw Matrix)</h2>
+                <h2 @click="activeTab = 'validation'" 
+                    :style="{ 
+                        borderLeft: '5px solid ' + (activeTab === 'validation' ? '#28a745' : '#ccc'),
+                        opacity: activeTab === 'validation' ? 1 : 0.5 
+                    }"
+                    style="padding-left: 10px; cursor: pointer; margin-bottom: 10px;">
+                    🛡️ 模型实战回测
+                </h2>
+                <h2 @click="activeTab = 'rawdata'" 
+                    :style="{ 
+                        borderLeft: '5px solid ' + (activeTab === 'rawdata' ? '#28a745' : '#ccc'), 
+                        opacity: activeTab === 'rawdata' ? 1 : 0.5 
+                    }"
+                    style="padding-left: 10px; cursor: pointer; margin-bottom: 10px;">
+                    🧬 全息生数据 (Raw Matrix)
+                </h2>
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                    <h2 id="tab-btn-polymarket" onclick="switchTab('polymarket')" style="border-left: 5px solid #ccc; padding-left: 10px; cursor: pointer; margin-bottom: 0; opacity: 0.5;">🔮 市场预测 (Sentiment)</h2>
-                    <button id="btnSyncSentiment" onclick="syncSentiment()" style="display:none; background: #6f42c1; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; font-size: 14px;" title="实时刷新赔率">🔄</button>
+                    <h2 @click="activeTab = 'polymarket'" 
+                        :style="{ 
+                            borderLeft: '5px solid ' + (activeTab === 'polymarket' ? '#6f42c1' : '#ccc'), 
+                            opacity: activeTab === 'polymarket' ? 1 : 0.5 
+                        }"
+                        style="padding-left: 10px; cursor: pointer; margin-bottom: 0;">
+                        🔮 市场预测 (Sentiment)
+                    </h2>
                 </div>
                 
-                <!-- [NEW] Export Button -->
                 <div style="flex-grow: 1;"></div>
-                <button onclick="document.getElementById('exportModal').style.display='flex'" class="export-btn" style="background: #28a745; color: white; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.9em; display: flex; align-items: center; gap: 6px; transition: all 0.3s; box-shadow: 0 4px 6px rgba(40, 167, 69, 0.15); margin-bottom: 10px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(40, 167, 69, 0.25)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(40, 167, 69, 0.15)';" title="导出所有最新的预测记录">
+                <button @click="showModal = true" class="export-btn" style="background: #28a745; color: white; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.9em; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 6px rgba(40, 167, 69, 0.15); margin-bottom: 10px;">
                     📥 一键导出预测
                 </button>
             </div>
 
-            <!-- Tab 1: Validation -->
-            <div id="tab-validation" style="display: block;">
-                <div style="overflow-x: auto; max-height: 500px; overflow-y: auto; border: 1px solid #dee2e6;">
-                    <table id="accuracyTable" style="width: 100%; border-collapse: collapse; margin-top: 0;">
-                        <thead>
-                            <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6; position: sticky; top: 0; z-index: 1;">
-                                <th style="padding: 12px; text-align: left;">日期</th>
-                                <th style="padding: 12px; text-align: right;">真实客流</th>
-                                <th style="padding: 12px; text-align: right;">AI 预测</th>
-                                <th style="padding: 12px; text-align: right;">误差 (人数)</th>
-                                <th style="padding: 12px; text-align: center;">准确度</th>
-                            </tr>
-                        </thead>
-                        <tbody id="accuracyTableBody">
-                            <!-- JS 填充 -->
-                        </tbody>
-                    </table>
-                </div>
+            <!-- Tabs Content -->
+            <div v-show="activeTab === 'validation'">
+                <prediction-table :validation-data="validationHistory"></prediction-table>
             </div>
 
-            <!-- Tab 2: Raw Data -->
-            <div id="tab-rawdata" style="display: none;">
-                <div class="glass-scroll" style="overflow-x: auto; max-height: 600px; overflow-y: auto;">
-                    <table id="rawTable">
-                        <thead>
-                            <tr>
-                                <th style="padding: 10px;">日期 (Date)</th>
-                                <th style="padding: 10px; text-align: right;">客流量 (Throughput)</th>
-                                <th style="padding: 10px;">节假日 (Holiday)</th>
-                                <th style="padding: 10px;">气象因子 (Weather)</th>
-                                <th style="padding: 10px;">航班因子 (Flight)</th>
-                                <th style="padding: 10px;">时序锚点 (Lags)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="rawTableBody">
-                            <!-- JS 填充 -->
-                        </tbody>
-                    </table>
-                </div>
-                <!-- Load More Button -->
-                <div style="text-align: center; margin-top: 15px;">
-                    <button onclick="loadRawData()" style="padding: 10px 30px; background: #17a2b8; color: white; border: none; border-radius: 4px; cursor: pointer;">⬇️ 加载更多 (Load More 50)</button>
-                </div>
+            <div v-show="activeTab === 'rawdata'">
+                <raw-data-table :data="rawData" @load-more="loadRaw"></raw-data-table>
             </div>
 
-            <!-- Tab 3: Polymarket (New) -->
-            <div id="tab-polymarket" style="display: none;">
-                <div id="polymarket-grid">
-                    <!-- Cards injected by JS -->
-                </div>
-            </div>
-
-
-<!-- Scoped CSS for Polymarket Cards -->
-<style>
-    #polymarket-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-        gap: 20px;
-        padding: 10px;
-    }
-    .market-card {
-        border: 1px solid #e9ecef;
-        border-radius: 12px;
-        padding: 15px;
-        background: #fff;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        transition: transform 0.2s;
-    }
-    .market-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-    .market-header {
-        margin-bottom: 12px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #f8f9fa;
-        padding-bottom: 8px;
-    }
-    .market-date {
-        font-size: 1.1em;
-        font-weight: 700;
-        color: #343a40;
-    }
-    .view-details-btn {
-        font-size: 0.85em;
-        color: #6f42c1;
-        text-decoration: none;
-        background: #f3f0ff;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-weight: 500;
-    }
-    .view-details-btn:hover {
-        background: #e0d4fc;
-        text-decoration: none;
-    }
-    
-    /* New Layout: Bucket Chips (Small Boxes) */
-    .bucket-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-    }
-    .bucket-chip {
-        flex: 1 1 30%; /* Approx 3 per row, responsive */
-        min-width: 90px;
-        background: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 8px;
-        padding: 8px;
-        text-align: center;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-    }
-    .chip-prob {
-        font-size: 1.2em;
-        font-weight: 800;
-        color: #495057;
-    }
-    .chip-label {
-        font-size: 0.8em;
-        color: #6c757d;
-        margin-top: 2px;
-    }
-    
-    /* Winner Style */
-    .bucket-chip.winner {
-        background: #d4edda;
-        border-color: #c3e6cb;
-    }
-    .bucket-chip.winner .chip-prob {
-        color: #155724;
-    }
-    .bucket-chip.winner .chip-label {
-        color: #155724;
-    }
-</style>
-                </div>
+            <div v-show="activeTab === 'polymarket'">
+                <polymarket-grid :market-data="marketData"></polymarket-grid>
             </div>
         </div>
     </div>
+{% endraw %}
 
-    <!-- 引入外部逻辑 -->
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ range(1, 10000) | random }}"></script>
+    <!-- Main Entry Point -->
+    <script type="module" src="{{ url_for('static', filename='js/vue_app.js') }}?v={{ range(1, 10000) | random }}"></script>
 </body>
 </html>

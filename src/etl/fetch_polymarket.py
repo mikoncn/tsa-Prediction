@@ -54,13 +54,17 @@ def fetch_market_data(target_date):
     day = dt.day
     
     slug = f"number-of-tsa-passengers-{month_name}-{day}"
-    url = f"https://gamma-api.polymarket.com/events?slug={slug}"
+    
+    # [ROBUSTNESS] Use centralized config
+    from src.config import POLYMARKET_API_URL
+    url = f"{POLYMARKET_API_URL}?slug={slug}"
     
     print(f"Fetching {slug}...")
     
     try:
         headers = {"User-Agent": "MikonAI/1.0"}
         res = requests.get(url, headers=headers, timeout=10)
+        res.raise_for_status() # [ROBUSTNESS] Check for 4xx/5xx
         data = res.json()
         
         if not data:
@@ -161,20 +165,14 @@ def save_snapshots(snapshots):
     conn.close()
     print(f"Saved {len(snapshots)} snapshots to DB.")
 
-def main():
+def run(recent=False):
     print("=== Polymarket ETL Started ===")
     
-    # 解析参数
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--recent', action='store_true', help='Only fetch from T-1 to T+3')
-    args = parser.parse_args()
-    
-    if args.recent:
-        # 实时同步模式：仅覆盖 T-1 到 T+3 (重点观测区)
+    if recent:
+        # 实时同步模式：仅覆盖 T-1 到 T+8 (重点观测区)
         start_dt = datetime.date.today() - timedelta(days=1)
-        days_to_fetch = 5
-        print(f"[Quick Sync] Fetching 5 days from {start_dt}")
+        days_to_fetch = 10
+        print(f"[Quick Sync] Fetching 10 days from {start_dt}")
     else:
         # 全量更新模式：T-3 到 T+10
         start_dt = datetime.date.today() - timedelta(days=3)
@@ -194,4 +192,10 @@ def main():
     print("=== Polymarket ETL Finished ===")
 
 if __name__ == "__main__":
-    main()
+    # 解析参数
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--recent', action='store_true', help='Only fetch from T-1 to T+3')
+    args = parser.parse_args()
+    
+    run(recent=args.recent)

@@ -254,6 +254,18 @@ def backfill(days_to_backfill=45):
         
     print("=== 历史回溯任务结束 ===")
 
+def run(recent=False):
+    """
+    OpenSky 数据抓取入口
+    :param recent: True=仅同步最近 3 天, False=默认回溯 45 天
+    """
+    if recent:
+        print("=== [UI模式] 快速同步最近 3 天数据 ===")
+        backfill(days_to_backfill=3)
+    else:
+        # 默认行为
+        backfill(45)
+
 if __name__ == "__main__":
     # 命令行参数逻辑优化
     # 模式 1: python fetch_opensky.py 60  -> 深度回溯过去 60 天 (Daemon 模式)
@@ -262,10 +274,7 @@ if __name__ == "__main__":
     import sys
     
     if '--recent' in sys.argv:
-        print("=== [UI模式] 快速同步最近 3 天数据 ===")
-        # 强制检查过去 3 天 (今天, 昨天, 前天)
-        # 确保 T-1 和 T-2 有数据，这是 Sniper 模型最需要的
-        backfill(days_to_backfill=3)
+        run(recent=True)
         
     elif len(sys.argv) > 1:
         # 数字模式，回溯指定天数
@@ -273,7 +282,6 @@ if __name__ == "__main__":
             days = int(sys.argv[1])
             backfill(days)
         except:
-            backfill(45) # Default
+            run() # Default
     else:
-        # 默认行为
-        backfill(45)
+        run()

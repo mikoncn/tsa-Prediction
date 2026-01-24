@@ -11,6 +11,8 @@ import sys
 # Ensure src can be imported if app.py is run directly
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from src.config import DB_PATH
+from src.etl import build_tsa_db, fetch_opensky, fetch_polymarket, get_weather_features, merge_db
+from src.models import train_xgb
 
 # 获取数据库连接的助手函数
 def get_db_connection():
@@ -269,102 +271,97 @@ def secure_export():
     except Exception as e:
         return str(e), 500
 
-# API: 点击页面按钮时手动触发模型重新训练和预测
 @app.route('/api/run_prediction', methods=['POST'])
 def run_prediction():
     try:
-        import subprocess
-        import sys
-        print("🚀 正在触发模型运行 (train_xgb.py)...")
-        print(f"   Python executable: {sys.executable}")
-        print(f"   Working directory: {os.getcwd()}")
+        print("🚀 正在触发模型运行 (train_xgb.run)...")
         
-        # 运行子进程执行训练脚本
-        # 注意：此处处理了 Windows 环境下的 GBK 编码问题
-        result = subprocess.run(
-            [sys.executable, '-m', 'src.models.train_xgb'], 
-            capture_output=True, 
-            text=True,
-            encoding='utf-8',
-            errors='replace',  # 解码失败时替换字符而非报错
-            cwd=os.getcwd(),
-            timeout=60  # 60秒超时保护
-        )
+        # 直接调用函数
+        train_xgb.run()
         
-        # 打印完整输出用于调试
-        if result.stdout:
-            print(f"📝 STDOUT:\n{result.stdout}")
-        if result.stderr:
-            print(f"⚠️ STDERR:\n{result.stderr}")
-        
-        if result.returncode == 0:
-            print("✅ Model Run Success")
-            # 提取最后几行输出作为摘要
-            output_lines = result.stdout.strip().split('\n')
-            summary = '\n'.join(output_lines[-5:]) if len(output_lines) > 5 else result.stdout
-            return jsonify({
-                'status': 'success', 
-                'message': '预测完成!数据已更新',
-                'summary': summary
-            })
-        else:
-            error_msg = result.stderr if result.stderr else result.stdout
-            print(f"❌ Model Run Failed (returncode={result.returncode})")
-            return jsonify({
-                'status': 'error', 
-                'message': f'模型运行失败: {error_msg}'
-            }), 500
+        print("✅ Model Run Success")
+        return jsonify({
+            'status': 'success', 
+            'message': '预测完成!数据已更新',
+            'summary': 'Executed via Direct Call'
+        })
             
-    except subprocess.TimeoutExpired:
-        print(f"❌ Timeout: 模型运行超过60秒")
-        return jsonify({'status': 'error', 'message': '模型运行超时(>60秒)'}), 500
     except Exception as e:
         print(f"❌ Execution Error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# API: 一键更新数据(抓取TSA+天气+合并)
+# [NEW] Import Refactored Modules
+from src.etl import build_tsa_db, fetch_opensky, fetch_polymarket, get_weather_features, merge_db
+from src.models import train_xgb
+
+# ...
+
 @app.route('/api/update_data', methods=['POST'])
 def update_data():
     try:
-        import subprocess
-        import sys
-        print("🔄 开始数据更新流程...")
-        
-        steps = [
-            {'name': '抓取最新TSA数据', 'cmd': [sys.executable, '-m', 'src.etl.build_tsa_db', '--latest'], 'timeout': 45},
-            {'name': '同步天气特征', 'cmd': [sys.executable, '-m', 'src.etl.get_weather_features'], 'timeout': 30},
-            {'name': '同步航班数据', 'cmd': [sys.executable, '-m', 'src.etl.fetch_opensky', '--recent', '--fail-fast'], 'timeout': 150},
-            {'name': '合并数据库', 'cmd': [sys.executable, '-m', 'src.etl.merge_db'], 'timeout': 60},
-            {'name': '全量模型重训(Persistence)', 'cmd': [sys.executable, '-m', 'src.models.train_xgb'], 'timeout': 180}
-        ]
-        
+        print("🔄 开始数据更新流程 (Internal Function Calls)...")
         results = []
-        for step in steps:
-            print(f"\n[步骤] {step['name']}...")
-            result = subprocess.run(
-                step['cmd'], capture_output=True, text=True,
-                encoding='utf-8', errors='replace',
-                cwd=os.getcwd(), timeout=step['timeout']
-            )
-            
-            if result.returncode == 0:
-                print(f"✅ {step['name']} 完成")
-                output_lines = result.stdout.strip().split('\n')
-                summary = '\n'.join(output_lines[-3:]) if len(output_lines) > 3 else result.stdout
-                results.append({'step': step['name'], 'status': 'success', 'summary': summary})
-            else:
-                error_msg = result.stderr if result.stderr else result.stdout
-                print(f"❌ {step['name']} 失败: {error_msg}")
-                return jsonify({'status': 'error', 'message': f'{step["name"]}失败', 'error': error_msg}), 500
+
+        # 1. 抓取最新 TSA 数据
+        try:
+            print("\n[步骤] 抓取最新TSA数据...")
+            build_tsa_db.run(latest=True)
+            results.append({'step': '抓取最新TSA数据', 'status': 'success', 'summary': 'Completed'})
+        except Exception as e:
+            print(f"❌ TSA抓取失败: {e}")
+            return jsonify({'status': 'error', 'message': f'TSA抓取失败: {e}'}), 500
+
+        # 2. 同步天气特征
+        try:
+            print("\n[步骤] 同步天气特征...")
+            get_weather_features.run()
+            results.append({'step': '同步天气特征', 'status': 'success', 'summary': 'Completed'})
+        except Exception as e:
+            print(f"❌ 天气同步失败: {e}")
+            return jsonify({'status': 'error', 'message': f'天气同步失败: {e}'}), 500
+
+        # 3. 同步航班数据 (Recent)
+        try:
+            print("\n[步骤] 同步航班数据...")
+            fetch_opensky.run(recent=True)
+            results.append({'step': '同步航班数据', 'status': 'success', 'summary': 'Completed'})
+        except Exception as e:
+            print(f"❌ 航班同步失败: {e}")
+            # Non-blocking error? User said fail-fast.
+            results.append({'step': '同步航班数据', 'status': 'error', 'summary': str(e)})
+
+        # 4. 抓取 Polymarket 数据
+        try:
+            print("\n[步骤] 抓取 Polymarket 数据...")
+            fetch_polymarket.run(recent=True)
+            results.append({'step': '抓取 Polymarket 数据', 'status': 'success', 'summary': 'Completed'})
+        except Exception as e:
+            print(f"❌ Polymarket 抓取失败: {e}")
+            results.append({'step': '抓取 Polymarket 数据', 'status': 'error', 'summary': str(e)})
+
+        # 5. 合并数据库
+        try:
+            print("\n[步骤] 合并数据库...")
+            merge_db.run()
+            results.append({'step': '合并数据库', 'status': 'success', 'summary': 'Completed'})
+        except Exception as e:
+            print(f"❌ 数据库合并失败: {e}")
+            return jsonify({'status': 'error', 'message': f'数据库合并失败: {e}'}), 500
+
+        # 6. 全量模型重训
+        try:
+            print("\n[步骤] 全量模型重训...")
+            train_xgb.run()
+            results.append({'step': '全量模型重训', 'status': 'success', 'summary': 'Completed'})
+        except Exception as e:
+            print(f"❌ 模型训练失败: {e}")
+            return jsonify({'status': 'error', 'message': f'模型训练失败: {e}'}), 500
         
         print("\n✅ 数据更新流程全部完成")
         return jsonify({'status': 'success', 'message': '数据更新成功!', 'results': results})
         
-    except subprocess.TimeoutExpired as e:
-        print(f"❌ 超时: {e}")
-        return jsonify({'status': 'error', 'message': f'操作超时: {e}'}), 500
     except Exception as e:
         print(f"❌ 错误: {e}")
         import traceback

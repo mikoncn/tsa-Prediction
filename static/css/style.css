@@ -292,3 +292,91 @@ canvas {
 .glass-scroll::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 0, 0, 0.2);
 }
+
+/* Polymarket Card Styles */
+#polymarket-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 20px;
+    padding: 10px;
+}
+.market-card {
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    padding: 15px;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    transition: transform 0.2s;
+}
+.market-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.market-header {
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #f8f9fa;
+    padding-bottom: 8px;
+}
+.market-date {
+    font-size: 1.1em;
+    font-weight: 700;
+    color: #343a40;
+}
+.view-details-btn {
+    font-size: 0.85em;
+    color: #6f42c1;
+    text-decoration: none;
+    background: #f3f0ff;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+}
+.view-details-btn:hover {
+    background: #e0d4fc;
+    text-decoration: none;
+}
+
+/* New Layout: Bucket Chips (Small Boxes) */
+.bucket-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.bucket-chip {
+    flex: 1 1 30%; /* Approx 3 per row, responsive */
+    min-width: 90px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 8px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+.chip-prob {
+    font-size: 1.2em;
+    font-weight: 800;
+    color: #495057;
+}
+.chip-label {
+    font-size: 0.8em;
+    color: #6c757d;
+    margin-top: 2px;
+}
+
+/* Winner Style */
+.bucket-chip.winner {
+    background: #d4edda;
+    border-color: #c3e6cb;
+}
+.bucket-chip.winner .chip-prob {
+    color: #155724;
+}
+.bucket-chip.winner .chip-label {
+    color: #155724;
+}

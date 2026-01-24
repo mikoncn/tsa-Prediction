@@ -130,18 +130,16 @@ def save_to_db(all_data):
     conn.close()
     print(f"成功存入/更新了 {len(all_data)} 条记录。")
 
-def main():
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description='TSA 旅客吞吐量数据抓取工具')
-    parser.add_argument('--latest', action='store_true', 
-                        help='仅抓取首页最新数据(增量更新模式)')
-    args = parser.parse_args()
-    
+def run(latest=False):
+    """
+    执行 TSA 数据抓取任务
+    :param latest: True=增量更新(仅首页), False=全量更新
+    """
     init_db()
     
     all_data = []
     
-    if args.latest:
+    if latest:
         # 增量更新模式: 仅抓取首页
         print("[增量模式] 仅抓取 TSA 首页最新数据...")
         page_data = scrape_page(START_URL)
@@ -176,4 +174,10 @@ def main():
     print("全部完成。")
 
 if __name__ == "__main__":
-    main()
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description='TSA 旅客吞吐量数据抓取工具')
+    parser.add_argument('--latest', action='store_true', 
+                        help='仅抓取首页最新数据(增量更新模式)')
+    args = parser.parse_args()
+    
+    run(latest=args.latest)
