@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 import os
 import io
+import threading
 
 app = Flask(__name__)
 
@@ -300,73 +301,109 @@ from src.models import train_xgb
 
 @app.route('/api/update_data', methods=['POST'])
 def update_data():
+    """
+    [异步响应 + 数据回传模式]
+    1. 立即触发后台流水线。
+    2. 同步查找并回传“当前最紧迫的未结盘预测值”，满足 n8n 快速取数需求。
+    """
+    
+    # --- 核心逻辑: 获取当前第一个未出分的预测点 ---
+    latest_unresolved = None
     try:
-        print("🔄 开始数据更新流程 (Internal Function Calls)...")
-        results = []
-
-        # 1. 抓取最新 TSA 数据
-        try:
-            print("\n[步骤] 抓取最新TSA数据...")
-            build_tsa_db.run(latest=True)
-            results.append({'step': '抓取最新TSA数据', 'status': 'success', 'summary': 'Completed'})
-        except Exception as e:
-            print(f"❌ TSA抓取失败: {e}")
-            return jsonify({'status': 'error', 'message': f'TSA抓取失败: {e}'}), 500
-
-        # 2. 同步天气特征
-        try:
-            print("\n[步骤] 同步天气特征...")
-            get_weather_features.run()
-            results.append({'step': '同步天气特征', 'status': 'success', 'summary': 'Completed'})
-        except Exception as e:
-            print(f"❌ 天气同步失败: {e}")
-            return jsonify({'status': 'error', 'message': f'天气同步失败: {e}'}), 500
-
-        # 3. 同步航班数据 (Recent)
-        try:
-            print("\n[步骤] 同步航班数据...")
-            fetch_opensky.run(recent=True)
-            results.append({'step': '同步航班数据', 'status': 'success', 'summary': 'Completed'})
-        except Exception as e:
-            print(f"❌ 航班同步失败: {e}")
-            # Non-blocking error? User said fail-fast.
-            results.append({'step': '同步航班数据', 'status': 'error', 'summary': str(e)})
-
-        # 4. 抓取 Polymarket 数据
-        try:
-            print("\n[步骤] 抓取 Polymarket 数据...")
-            fetch_polymarket.run(recent=True)
-            results.append({'step': '抓取 Polymarket 数据', 'status': 'success', 'summary': 'Completed'})
-        except Exception as e:
-            print(f"❌ Polymarket 抓取失败: {e}")
-            results.append({'step': '抓取 Polymarket 数据', 'status': 'error', 'summary': str(e)})
-
-        # 5. 合并数据库
-        try:
-            print("\n[步骤] 合并数据库...")
-            merge_db.run()
-            results.append({'step': '合并数据库', 'status': 'success', 'summary': 'Completed'})
-        except Exception as e:
-            print(f"❌ 数据库合并失败: {e}")
-            return jsonify({'status': 'error', 'message': f'数据库合并失败: {e}'}), 500
-
-        # 6. 全量模型重训
-        try:
-            print("\n[步骤] 全量模型重训...")
-            train_xgb.run()
-            results.append({'step': '全量模型重训', 'status': 'success', 'summary': 'Completed'})
-        except Exception as e:
-            print(f"❌ 模型训练失败: {e}")
-            return jsonify({'status': 'error', 'message': f'模型训练失败: {e}'}), 500
+        conn = get_db_connection()
+        # A. 找到 TSA 官网已披露的最后日期
+        query_max_actual = "SELECT max(date) FROM traffic WHERE throughput IS NOT NULL AND throughput > 0"
+        max_row = conn.execute(query_max_actual).fetchone()
+        max_actual_date = max_row[0] if (max_row and max_row[0]) else '1970-01-01'
         
-        print("\n✅ 数据更新流程全部完成")
-        return jsonify({'status': 'success', 'message': '数据更新成功!', 'results': results})
-        
+        # B. 找到该日期之后的第一个预测点 (即“最新待结盘数据”)
+        query_pred = """
+            SELECT target_date, predicted_throughput, holiday_name, model_run_date
+            FROM prediction_history
+            WHERE target_date > ?
+            ORDER BY target_date ASC, model_run_date DESC
+            LIMIT 1
+        """
+        pred_row = conn.execute(query_pred, (max_actual_date,)).fetchone()
+        if pred_row:
+            latest_unresolved = dict(pred_row)
+        conn.close()
     except Exception as e:
-        print(f"❌ 错误: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        print(f"⚠️ 预检索未结盘数据失败: {e}")
+
+    # --- 启动狙击模型 (Sniper Mode) ---
+    # 我们瞄准“待结盘”的日期，如果该日期已有航班数据，狙击模型会非常准
+    sniper_result = None
+    market_consensus = None
+    try:
+        if latest_unresolved:
+            target_date = latest_unresolved['target_date']
+            print(f"🎯 正在为 {target_date} 启动即时狙击与市场情绪分析...")
+            
+            # 1. 狙击预测
+            from src.models import predict_sniper
+            sniper_data = predict_sniper.train_and_predict(target_date)
+            if sniper_data and "error" not in sniper_data:
+                sniper_result = sniper_data
+                
+            # 2. 市场情绪 (顶级赔率区间)
+            conn = get_db_connection()
+            query_market = """
+                SELECT outcome_label, price 
+                FROM market_sentiment_snapshots 
+                WHERE target_date = ?
+                AND id IN (SELECT MAX(id) FROM market_sentiment_snapshots WHERE target_date = ? GROUP BY outcome_label)
+                ORDER BY price DESC 
+                LIMIT 1
+            """
+            market_row = conn.execute(query_market, (target_date, target_date)).fetchone()
+            conn.close()
+            
+            if market_row:
+                market_consensus = {
+                    "outcome": market_row['outcome_label'],
+                    "probability": f"{round(market_row['price'] * 100, 1)}%",
+                    "raw_price": market_row['price']
+                }
+    except Exception as e:
+        print(f"⚠️ 扩展数据检索失败: {e}")
+
+    # --- 启动异步更新任务 ---
+    def run_pipeline_task():
+        try:
+            print("\n" + "="*50)
+            print("🚀 后台流水线启动 (Threaded Unified Pipeline)")
+            print("="*50)
+            
+            build_tsa_db.run(latest=True)
+            get_weather_features.run()
+            try: fetch_opensky.run(recent=True)
+            except: pass
+            try: fetch_polymarket.run(recent=True)
+            except: pass
+            merge_db.run()
+            train_xgb.run()
+            
+            print("\n✅ 后台数据更新流程全部完成")
+            print("="*50 + "\n")
+        except Exception as e:
+            print(f"❌ 后台任务执行崩溃: {e}")
+
+    thread = threading.Thread(target=run_pipeline_task)
+    thread.daemon = True
+    thread.start()
+
+    # --- 立即返回响应 ---
+    return jsonify({
+        'status': 'success',
+        'message': '任务已在后台启动，以下是双模型预测快照。',
+        'prediction_sources': {
+            'long_term_forecast': latest_unresolved,   # 基于全量因子的长期预测 (XGBoost)
+            'short_term_sniper': sniper_result,        # 基于即时航班量的狙击预测 (Sniper)
+            'market_sentiment': market_consensus       # Polymarket 市场共识 (投注最高区间)
+        },
+        'timestamp': pd.Timestamp.now().isoformat()
+    }), 202
 
 # API: 狙击模型 (T+0 Nowcasting)
 @app.route('/api/predict_sniper', methods=['POST'])
@@ -579,4 +616,4 @@ def sync_market_sentiment():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    app.run(debug=True, host='0.0.0.0', port=5001)

@@ -1,6 +1,6 @@
 export default {
     name: 'ControlPanel',
-    props: ['years'],
+    props: ['years', 'isUpdating'],
     emits: ['update-range', 'run-prediction', 'update-data', 'run-sniper', 'run-challenger', 'filter-year'],
     setup(props, { emit }) {
         return { emit };
@@ -14,7 +14,14 @@ export default {
         <div class="divider"></div>
         
         <button @click="emit('run-prediction')" style="background-color: #28a745; color: white;">🚀 立即预测</button>
-        <button @click="emit('update-data')" style="background-color: #17a2b8; color: white; margin-left: 10px;">🔄 更新数据</button>
+        
+        <button @click="emit('update-data')" 
+                :disabled="isUpdating"
+                :style="{backgroundColor: isUpdating ? '#6c757d' : '#17a2b8', color: 'white', marginLeft: '10px', cursor: isUpdating ? 'not-allowed' : 'pointer'}">
+            <span v-if="isUpdating">⏳ 更新中...</span>
+            <span v-else>🔄 更新数据</span>
+        </button>
+        
         <button @click="emit('run-sniper')" style="background-color: #dc3545; color: white; margin-left: 10px; font-weight: bold;">🎯 智能狙击 (Smart Sniper)</button>
         <button @click="emit('run-challenger')" style="background-color: #6f42c1; color: white; margin-left: 10px; font-weight: bold;">🟣 深度对决 (Deep Comparison)</button>
 

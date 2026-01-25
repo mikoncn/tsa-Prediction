@@ -29,6 +29,7 @@ const App = {
         const activeTab = ref('validation');
         const showModal = ref(false); // Export Modal
         const showSniperModal = ref(false);
+        const isUpdating = ref(false); // [NEW] Loading State
         
         const stats = reactive({
             latestDate: '-', latestValue: null,
@@ -177,17 +178,23 @@ const App = {
         };
 
         const updateData = async () => {
-            if(!confirm('确定要更新数据吗？可能需要几十秒。')) return;
+            if(!confirm('确定要更新数据吗？全流程约需 30-60 秒。\n请耐心等待按钮状态变更。')) return;
+            
+            isUpdating.value = true;
             try {
                 const res = await API.updateData();
                 if(res.status === 'success') {
-                    alert('✅ 更新成功');
+                    alert('✅ 更新成功! \n' + (res.message || '数据已刷新'));
                     loadHistory();
                     loadPredictions();
                 } else {
-                    alert('❌ ' + res.message);
+                    alert('❌ 更新失败: ' + res.message);
                 }
-            } catch (e) { alert(e); }
+            } catch (e) { 
+                alert('❌ 网络超时或错误: ' + e); 
+            } finally {
+                isUpdating.value = false;
+            }
         };
 
         const runPrediction = async () => {
@@ -311,7 +318,7 @@ const App = {
             stats, predictionState, updatePredictionDisplay,
             activeTab, showModal, showSniperModal, sniperResult,
             currentChartData, currentAnnotations, chartRef,
-            onPredictionDateChange, loadRaw
+            onPredictionDateChange, loadRaw, isUpdating
         };
     }
 };
