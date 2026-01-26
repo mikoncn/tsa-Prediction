@@ -28,6 +28,73 @@ AIRPORTS = {
     "JFK": {"lat": 40.64, "lon": -73.77}
 }
 
+def fetch_weather(url, airports, start_date, end_date):
+    """
+    通用天气抓取函数
+    """
+    all_rows = []
+    
+    for icao, coords in airports.items():
+        try:
+            params = {
+                "latitude": coords["lat"],
+                "longitude": coords["lon"],
+                "start_date": start_date,
+                "end_date": end_date,
+                "daily": ["snowfall_sum", "precipitation_sum", "wind_speed_10m_max", "temperature_2m_min"]
+            }
+            
+            responses = openmeteo.weather_api(url, params=params)
+            response = responses[0]
+            
+            daily = response.Daily()
+            daily_snowfall_sum = daily.Variables(0).ValuesAsNumpy()
+            daily_precipitation_sum = daily.Variables(1).ValuesAsNumpy()
+            daily_wind_speed_10m_max = daily.Variables(2).ValuesAsNumpy()
+            daily_temperature_2m_min = daily.Variables(3).ValuesAsNumpy()
+            
+            daily_data = {"date": pd.date_range(
+                start = pd.to_datetime(daily.Time(), unit = "s", utc = True),
+                end = pd.to_datetime(daily.TimeEnd(), unit = "s", utc = True),
+                freq = pd.Timedelta(seconds = daily.Interval()),
+                inclusive = "left"
+            )}
+            
+            df = pd.DataFrame(data = daily_data)
+            df["airport"] = icao
+            df["snowfall_cm"] = daily_snowfall_sum
+            df["precipitation_mm"] = daily_precipitation_sum
+            df["windspeed_kmh"] = daily_wind_speed_10m_max
+            df["temperature_min_c"] = daily_temperature_2m_min
+            
+            # Simple Severity Score (Updated with Flash Freeze Logic)
+            def calc_score(row):
+                score = 0
+                # Snow
+                if row['snowfall_cm'] > 1.0: score += 1
+                if row['snowfall_cm'] > 5.0: score += 2    # Cumulative: >5cm gets +3 total
+                # Wind
+                if row['windspeed_kmh'] > 29.0: score += 1
+                if row['windspeed_kmh'] > 40.0: score += 2 # Cumulative: >40kmh gets +3 total
+                # Temperature (Flash Freeze Logic - Tuned for Southern Hub Sensitivity)
+                if row['temperature_min_c'] < -5.0: score += 1
+                if row['temperature_min_c'] < -10.0: score += 1  # Cumulative: <-10 gets +2 (Severe for DFW)
+                if row['temperature_min_c'] < -15.0: score += 1  # Cumulative: <-15 gets +3 (Severe for ORD)
+                
+                return score
+            
+            df['severity_score'] = df.apply(calc_score, axis=1)
+            all_rows.append(df)
+            print(f"   [OK] Fetched {icao}: {len(df)} days")
+            
+        except Exception as e:
+            print(f"   [Error] Failed to fetch {icao}: {e}")
+            
+    if all_rows:
+        return pd.concat(all_rows, ignore_index=True)
+    else:
+        return pd.DataFrame()
+
 def run(full_mode=False):
     """
     天气数据抓取
@@ -107,7 +174,7 @@ def run(full_mode=False):
             detailed_df['updated_at'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
             # Columns to save
-            cols = ['date', 'airport', 'snowfall_cm', 'windspeed_kmh', 'precipitation_mm', 'severity_score', 'updated_at']
+            cols = ['date', 'airport', 'snowfall_cm', 'windspeed_kmh', 'precipitation_mm', 'temperature_min_c', 'severity_score', 'updated_at']
             detailed_df[cols].to_sql('weather', conn, if_exists='replace', index=False)
             print(f"   - 表 [weather]: 已更新 {len(detailed_df)} 条数据")
             

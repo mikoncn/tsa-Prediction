@@ -192,9 +192,14 @@ def run():
         elif best_dist < -14: best_dist = -15
         df.at[idx, 'days_to_nearest_holiday'] = best_dist
 
-    # [NEW] Weather Rebound Logic (Lag 1)
-    df['weather_lag_1'] = df['weather_index'].shift(1).fillna(0)
-
+    # [NEW] Weather Rebound Logic (Revenge Travel Index)
+    # Logic: Higher past weather indices = Higher current pent-up demand
+    # revenge_index = 0.5*w_lag_1 + 0.3*w_lag_2 + 0.2*w_lag_3
+    df['w_lag_1'] = df['weather_index'].shift(1).fillna(0)
+    df['w_lag_2'] = df['weather_index'].shift(2).fillna(0)
+    df['w_lag_3'] = df['weather_index'].shift(3).fillna(0)
+    df['revenge_index'] = (df['w_lag_1'] * 0.5) + (df['w_lag_2'] * 0.3) + (df['w_lag_3'] * 0.2)
+    
     # [NEW] Long Weekend Logic
     df['is_long_weekend'] = 0
     mask_long = (df['is_holiday'] == 1) & (df['day_of_week'].isin([0, 4]))
@@ -205,7 +210,7 @@ def run():
         'day_of_week', 'month', 'year', 'day_of_year', 'week_of_year', 'is_weekend',
         'weather_index', 'is_holiday', 'is_spring_break', 'is_off_peak_workday',
         'is_holiday_exact_day', 'days_to_nearest_holiday',
-        'weather_lag_1', 'is_long_weekend',
+        'revenge_index', 'is_long_weekend',
         'lag_7', 'lag_364', 'flight_lag_1', 'flight_ma_7'
     ]
 
@@ -429,6 +434,30 @@ def run():
 
         future_df['flight_ma_7'] = last_known_ma7
         future_df['flight_lag_1'] = last_known_lag1
+        
+        # [NEW] Calculate Future Revenge Index
+        # Access daily_weather_index for lags
+        try:
+            conn_rev = sqlite3.connect(DB_PATH)
+            # Pre-fetch weather history dict for fast lookup
+            w_history_df = pd.read_sql("SELECT date, index_value as weather_index FROM daily_weather_index", conn_rev)
+            conn_rev.close()
+            w_history_df['date'] = pd.to_datetime(w_history_df['date'])
+            w_map = w_history_df.set_index('date')['weather_index'].to_dict()
+            
+            def get_w(d): return w_map.get(d, 0)
+            
+            # vectorized apply is dangerous with dict lookup if huge, but here fine
+            future_df['w_lag_1'] = future_df['ds'].apply(lambda d: get_w(d - pd.Timedelta(days=1)))
+            future_df['w_lag_2'] = future_df['ds'].apply(lambda d: get_w(d - pd.Timedelta(days=2)))
+            future_df['w_lag_3'] = future_df['ds'].apply(lambda d: get_w(d - pd.Timedelta(days=3)))
+            
+            future_df['revenge_index'] = (future_df['w_lag_1'] * 0.5) + \
+                                         (future_df['w_lag_2'] * 0.3) + \
+                                         (future_df['w_lag_3'] * 0.2)
+        except Exception as e:
+             print(f"Failed to calc future revenge index: {e}")
+             future_df['revenge_index'] = 0
 
         # Real Spring Break
         future_df['is_spring_break'] = 0
@@ -445,6 +474,23 @@ def run():
 
         y_future_pred = model_full.predict(X_future)
         future_df['predicted_throughput'] = y_future_pred.astype(int)
+
+        # [NEW] Weather Circuit Breaker for Long-Term Forecast
+        # Logic matches Sniper: >35 (-30%), >20 (-15%)
+        print("   [POST-PROCESS] Applying Weather Circuit Breaker...")
+        
+        def apply_circuit_breaker(row):
+            val = row['predicted_throughput']
+            w_idx = row.get('weather_index', 0)
+            
+            if w_idx >= 35:
+                return int(val * 0.70)
+            elif w_idx >= 20:
+                return int(val * 0.85)
+            else:
+                return val
+
+        future_df['predicted_throughput'] = future_df.apply(apply_circuit_breaker, axis=1)
 
         # 保存预测结果
         future_df[['ds', 'predicted_throughput']].to_csv("xgb_forecast.csv", index=False)

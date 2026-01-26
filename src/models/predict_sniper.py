@@ -104,12 +104,14 @@ def train_and_predict(target_date_str):
     df.drop(columns=['lag_365'], inplace=True)
     
     # [NEW] Weather Lag 1
-    df['weather_lag_1'] = df['daily_weather_index'].shift(1).fillna(0) if 'daily_weather_index' in df.columns else np.zeros(len(df))
-    # Wait, 'daily_weather_index' might not be in df? load_data merges flight_stats but maybe not weather table?
-    # Let's check load_data. It only fetches 'traffic_full' and 'flight_stats'.
-    # traffic_full usually has 'weather_index'. 
     df['weather_lag_1'] = df['weather_index'].shift(1).fillna(0)
-
+    
+    # [NEW] Revenge Travel Index (Sync with train_xgb.py)
+    df['w_lag_1'] = df['weather_index'].shift(1).fillna(0)
+    df['w_lag_2'] = df['weather_index'].shift(2).fillna(0)
+    df['w_lag_3'] = df['weather_index'].shift(3).fillna(0)
+    df['revenge_index'] = (df['w_lag_1'] * 0.5) + (df['w_lag_2'] * 0.3) + (df['w_lag_3'] * 0.2)
+    
     # [NEW] Long Weekend
     df['is_long_weekend'] = 0
     mask_long = (df['is_holiday'] == 1) & (df['day_of_week'].isin([0, 4]))
@@ -168,7 +170,7 @@ def train_and_predict(target_date_str):
         'flight_current', 
         'weather_index', 'is_holiday', 'is_spring_break',
         'is_holiday_exact_day', 'days_to_nearest_holiday',
-        'weather_lag_1', 'is_long_weekend',
+        'revenge_index', 'is_long_weekend',
         'lag_7', 'lag_364'
     ]
     
@@ -237,6 +239,32 @@ def train_and_predict(target_date_str):
         is_h_exact = target_data.get('is_holiday_exact_day', 0)
         lag_7_val = target_data.get('throughput_lag_7', 0)
         lag_364_val = df[df['ds'] == (target_date - timedelta(days=364))]['y'].values[0] if not df[df['ds'] == (target_date - timedelta(days=364))].empty else 0
+
+        # [FIX] Force-fetch Weather Index from DB if 0 (handling future dates not in traffic_full)
+        if weather_idx == 0:
+            try:
+                print(f"   [Weather Fix] Attempting to fetch weather index for {target_date_str} from daily_weather_index...")
+                conn_w = get_db_connection()
+                # Check if table exists first to be safe
+                rw_chk = conn_w.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_weather_index'").fetchone()
+                if not rw_chk:
+                    print("   [Weather Fix] daily_weather_index table does not exist!")
+                else:
+                    row_w = conn_w.execute("SELECT weather_index FROM daily_weather_index WHERE date = ?", (target_date_str,)).fetchone()
+                    
+                    if row_w:
+                         # Handle sqlite.Row or tuple
+                        val = row_w['weather_index'] if isinstance(row_w, sqlite3.Row) else row_w[0]
+                        if val is not None:
+                            weather_idx = int(val)
+                            print(f"   [Weather Fix] Success! Real-time weather index: {weather_idx}")
+                        else:
+                            print("   [Weather Fix] Found row but index_value is None.")
+                    else:
+                        print(f"   [Weather Fix] No weather data found for {target_date_str}.")
+                conn_w.close()
+            except Exception as e:
+                print(f"   [Weather Fix] Critical Error: {e}")
 
         # [NEW] Real-time Day Distance Calculation
         # Whitelist
@@ -317,6 +345,31 @@ def train_and_predict(target_date_str):
         # We did lookup 'is_holiday' (is_h) earlier from target_row.
         if is_h == 1 and target_date.dayofweek in [0, 4]:
             is_long_val = 1
+            
+        # [NEW] Real-time Revenge Index
+        revenge_val = 0
+        try:
+            conn_rev = get_db_connection()
+            # Fetch last 3 days weather
+            d1 = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
+            d2 = (target_date - timedelta(days=2)).strftime("%Y-%m-%d")
+            d3 = (target_date - timedelta(days=3)).strftime("%Y-%m-%d")
+            
+            # Use daily_weather_index for most accurate source
+            # We can use traffic_full if we trust updated backfill, but daily_weather_index is source of truth.
+            rows = conn_rev.execute(f"SELECT date, index_value FROM daily_weather_index WHERE date IN ('{d1}', '{d2}', '{d3}')").fetchall()
+            conn_rev.close()
+            
+            w_map = {r[0]: r[1] for r in rows}
+            w1 = w_map.get(d1, 0)
+            w2 = w_map.get(d2, 0)
+            w3 = w_map.get(d3, 0)
+            
+            revenge_val = (w1 * 0.5) + (w2 * 0.3) + (w3 * 0.2)
+            # print(f"   [Revenge Index] {d1}:{w1}, {d2}:{w2}, {d3}:{w3} -> {revenge_val}")
+        except Exception as e:
+            print(f"   [Error] Failed revenge index calc: {e}")
+            revenge_val = 0
 
     # 生成基础日历特征
     day_of_week = target_date.dayofweek
@@ -402,7 +455,7 @@ def train_and_predict(target_date_str):
         'is_spring_break': is_sb,
         'is_holiday_exact_day': is_h_exact,
         'days_to_nearest_holiday': days_to_holiday_val,
-        'weather_lag_1': weather_lag_val,
+        'revenge_index': revenge_val,
         'is_long_weekend': is_long_val,
         'lag_7': lag_7_val,
         'lag_364': lag_364_val
@@ -410,13 +463,99 @@ def train_and_predict(target_date_str):
     
     # 最终预测执行
     pred = model.predict(X_target)[0]
+
+    # [NEW] Flight Cancellation Velocity & Blindness Logic
+    # 1. Calculate Baseline (MA30)
+    conn = get_db_connection()
+    # Get last 30 days of flight volumes (excluding today)
+    past_30_query = f"""
+        SELECT AVG(arrival_count) 
+        FROM (
+            SELECT arrival_count FROM flight_stats 
+            WHERE date < '{target_date_str}' 
+            ORDER BY date DESC LIMIT 30
+        )
+    """
+    row_ma = conn.execute(past_30_query).fetchone()
+    conn.close()
     
+    ma_30_flights = row_ma[0] if row_ma and row_ma[0] else 5000 # Default fallback
+    
+    # 2. Calculate Velocity
+    cancel_velocity = 0.0
+    if ma_30_flights > 0:
+        cancel_velocity = 1.0 - (flight_volume / ma_30_flights)
+    
+    # 3. Detect Data Outage (Blindness)
+    is_data_outage = False
+    if flight_volume < 100 or is_fallback:
+        is_data_outage = True
+        print(f"   [⚠️ 数据盲区] 航班量极低或已触发降级 (Vol={flight_volume}, Fallback={is_fallback})")
+
+    # 4. Apply Dynamic Circuit Breaker
+    circuit_breaker_triggered = False
+    original_pred = pred
+    final_penalty = 1.0
+    reason = ""
+
+    # Strategy A: Blind Flight Protocol (Trust Weather Double)
+    if is_data_outage:
+        if weather_idx >= 35:
+            final_penalty = 0.60 # -40% (Relaxed from -50%)
+            reason = f"盲飞模式 + 极端天气 (Idx={weather_idx}) -> 下调 40%"
+        elif weather_idx >= 20: 
+            final_penalty = 0.80 # -20% (Relaxed from -30%)
+            reason = f"盲飞模式 + 严重天气 (Idx={weather_idx}) -> 下调 20%"
+        elif weather_idx >= 15:
+            final_penalty = 0.90 # -10% (Relaxed from -15%)
+            reason = f"盲飞模式 + 中度天气 (Idx={weather_idx}) -> 下调 10%"
+        else:
+            reason = "盲飞模式 + 天气正常 -> 无需调整"
+
+    # Strategy B: Visible Flight Cancellation (Trust Reality)
+    else:
+        # Priority 1: High Cancellation Rate (Hard Evidence)
+        if cancel_velocity >= 0.50:
+            final_penalty = 0.50 # -50% (Massive Cancellations)
+            reason = f"航班由于天气/其他原因腰斩 (取消率 {cancel_velocity:.1%}) -> 下调 50%"
+        elif cancel_velocity >= 0.20:
+            final_penalty = 0.80 # -20% (Significant Cancellations)
+            reason = f"航班取消率较高 ({cancel_velocity:.1%}) -> 下调 20%"
+        
+        # Priority 2: Weather Index (if flights look normal but weather is scary?)
+        # Only apply weather penalty if it's STRONGER than flight penalty
+        # usually weather implies flight cancel, but if flights are somehow full?
+        # We take the MIN (worst case) of penalties.
+        
+        w_penalty = 1.0
+        w_reason = ""
+        if weather_idx >= 35:
+            w_penalty = 0.70
+            w_reason = f"极端天气 (Idx={weather_idx})"
+        elif weather_idx >= 20:
+            w_penalty = 0.85
+            w_reason = f"严重天气 (Idx={weather_idx})"
+            
+        if w_penalty < final_penalty:
+            final_penalty = w_penalty
+            reason = f"{w_reason} [覆盖航班数据] -> 下调 {int((1-final_penalty)*100)}%"
+
+    # Apply Final Penalty
+    if final_penalty < 1.0:
+        pred = pred * final_penalty
+        circuit_breaker_triggered = True
+        print(f"   [🛡️ 熔断生效] {reason}")
+
     return {
         "date": target_date_str,
         "predicted_throughput": int(pred),
         "flight_volume": int(flight_volume),
-        "is_fallback": is_fallback,
-        "model": "Sniper V1 (Time-Aware)"
+        "cancel_velocity": round(cancel_velocity, 2),
+        "is_data_outage": is_data_outage,
+        "model": "Sniper V1 (Blind-Fight Capable)",
+        "original_prediction": int(original_pred) if circuit_breaker_triggered else None,
+        "weather_index_used": int(weather_idx),
+        "modification_reason": reason if circuit_breaker_triggered else None
     }
 
 if __name__ == "__main__":

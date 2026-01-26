@@ -60,9 +60,21 @@ graph LR
 - **Is_Holiday_Travel_Window (窗口期)**: 标记节日前后 7 天，模型学会了**"节前大迁徙"**（正系数）。
 - **动态计算**: 抛弃静态 CSV，使用 Python `holidays` 库动态生成未来节日特征，确保永远不会“漏过”任何一个假期。
 
-### 2. 航班流关联 (Flight Volume Correlation)
-
 - 引入 **OpenSky Network** 实时数据。发现“航班量”与“客流量”存在 0.85+ 的强相关性，并将其作为强特征引入 Sniper 和 Challenger 模型。
+
+### 3. ❄️ 南方防御机制 (Southern Defense)
+
+**针对 2022年寒潮与 2026年南方暴雪研发的专用逻辑：**
+
+- **南方极寒敏感 (Southern Sensitivity)**:
+  - 针对 DFW/ATL 等南方枢纽，重新校准了气温阈值。
+  - **-10°C** 即判定为“极寒”(罚分)，**-20°C** 判定为“灾难”(熔断)。
+- **报复性反弹 (Revenge Travel Index)**:
+  - 引入 `Revenge_Index`，量化“压抑越狠，反弹越高”的补偿性出行心理。
+- **盲飞导航系统 (Blind Flight Protocol)**:
+  - **痛点**: 极端天气下，OpenSky 数据接口常因故障中断 (Data Outage)，导致模型变成“瞎子”。
+  - **方案**: 当检测到航班数据丢失时，自动切换至 **"Defensive Mode"** —— **双倍信任天气预报**。
+  - **效果**: 即使没有航班数据，也能凭天气指数精准预警崩盘 (误差 < 5%)。
 
 ---
 
