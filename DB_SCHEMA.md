@@ -43,17 +43,31 @@
 - **用途**: 替代 CSV，作为天气特征的唯一存储。
 - **更新频率**: 每次运行 `get_weather_features.py` 时全量/增量更新。
 
-| Column Name          | Type        | Description          |
-| :------------------- | :---------- | :------------------- |
-| **date**             | `TEXT` (PK) | 日期 (YYYY-MM-DD)    |
-| **airport**          | `TEXT` (PK) | 机场代码 (如 ORD)    |
-| **snowfall_cm**      | `REAL`      | 降雪量 (cm)          |
-| **windspeed_kmh**    | `REAL`      | 最大风速 (km/h)      |
-| **precipitation_mm** | `REAL`      | 降雨量 (mm)          |
-| **severity_score**   | `INTEGER`   | 机场单点恶劣天气评分 |
-| **updated_at**       | `TIMESTAMP` | 数据抓取时间         |
+| Column Name           | Type        | Description          |
+| :-------------------- | :---------- | :------------------- |
+| **date**              | `TEXT` (PK) | 日期 (YYYY-MM-DD)    |
+| **airport**           | `TEXT` (PK) | 机场代码 (如 ORD)    |
+| **snowfall_cm**       | `REAL`      | 降雪量 (cm)          |
+| **windspeed_kmh**     | `REAL`      | 最大风速 (km/h)      |
+| **precipitation_mm**  | `REAL`      | 降雨量 (mm)          |
+| **temperature_min_c** | `REAL`      | 最低气温 (°C) [NEW]  |
+| **severity_score**    | `INTEGER`   | 机场单点恶劣天气评分 |
+| **updated_at**        | `TIMESTAMP` | 数据抓取时间         |
 
-> **注意**: `weather_index` (全美熔断指数) 将改为在读取时通过 SQL 聚合计算，或在 `traffic_full` 生成阶段计算，不再作为原始数据存储，以保持灵活性。
+---
+
+### `daily_weather_index` (全美天气指数表)
+
+**[NEW]** 存储每日全美航空加权天气指数。
+
+- **用途**: 缓存计算后的天气指数，用于快速查询和模型输入。
+- **更新频率**: 每日更新 (`get_weather_features.py`).
+
+| Column Name       | Type        | Description       |
+| :---------------- | :---------- | :---------------- |
+| **date**          | `TEXT` (PK) | 日期 (YYYY-MM-DD) |
+| **weather_index** | `INTEGER`   | 全美天气熔断指数  |
+| **updated_at**    | `TIMESTAMP` | 更新时间          |
 
 ---
 
@@ -77,6 +91,9 @@
 | **is_holiday_travel_window** | `INTEGER`   | 窗口期标识                           |
 | **is_spring_break**          | `INTEGER`   | 春假标识                             |
 | **throughput_lag_7**         | `REAL`      | 7 天滞后特征                         |
+| **flight_volume**            | `INTEGER`   | 航班量 (OpenSky)                     |
+| **flight_ma_7**              | `INTEGER`   | 7日航班均值                          |
+| **flight_lag_1**             | `INTEGER`   | 昨日航班量                           |
 
 ---
 

@@ -325,21 +325,20 @@ from src.models import train_xgb
 @app.route('/api/update_data', methods=['POST'])
 def update_data():
     """
-    [异步响应 + 数据回传模式]
-    1. 立即触发后台流水线。
-    2. 同步查找并回传“当前最紧迫的未结盘预测值”，满足 n8n 快速取数需求。
+    [实时双规平衡模式]
+    1. 同步进行 Sniper 预测 + Polymarket 同步 (保证返回给 n8n 的是最新数据)。
+    2. 维持原始返回结构，无缝兼容。
+    3. 将耗时较长的全量 ETL 流程放入后台异步处理。
     """
     
-    # --- 核心逻辑: 获取当前第一个未出分的预测点 ---
+    # --- 1. 定位目标日期 ---
     latest_unresolved = None
     try:
         conn = get_db_connection()
-        # A. 找到 TSA 官网已披露的最后日期
         query_max_actual = "SELECT max(date) FROM traffic WHERE throughput IS NOT NULL AND throughput > 0"
         max_row = conn.execute(query_max_actual).fetchone()
         max_actual_date = max_row[0] if (max_row and max_row[0]) else '1970-01-01'
         
-        # B. 找到该日期之后的第一个预测点 (即“最新待结盘数据”)
         query_pred = """
             SELECT target_date, predicted_throughput, holiday_name, model_run_date
             FROM prediction_history
@@ -354,88 +353,93 @@ def update_data():
     except Exception as e:
         print(f"⚠️ 预检索未结盘数据失败: {e}")
 
-    # --- 启动狙击模型 (Sniper Mode) ---
-    # 我们瞄准“待结盘”的日期，如果该日期已有航班数据，狙击模型会非常准
+    # --- 2. 同步执行：实时抓取 Polymarket 赔率 & 快速狙击预测 ---
     sniper_result = None
     market_consensus = None
-    try:
-        if latest_unresolved:
-            target_date = latest_unresolved['target_date']
-            print(f"🎯 正在为 {target_date} 启动即时狙击与市场情绪分析...")
-            
-            # 1. 狙击预测
-            from src.models import predict_sniper
-            sniper_data = predict_sniper.train_and_predict(target_date)
-            if sniper_data and "error" not in sniper_data:
-                sniper_result = sniper_data
-                
-            # 🎯 [升级] 实时同步 Polymarket 赔率 (同步执行，确保数据最新)
-            print(f"⚡ 正在实时抓取 Polymarket 最新赔率...")
-            from src.etl import fetch_polymarket
-            try:
-                # 只同步最近 10 天，速度较快
-                fetch_polymarket.run(recent=True)
-            except Exception as fe:
-                print(f"⚠️ 实时赔率同步失败 (跳过): {fe}")
+    
+    if latest_unresolved:
+        target_date = latest_unresolved['target_date']
+        
+        # A. [SYNC] 实时同步 Polymarket (较快)
+        print(f"🎯 [Sync] 正在实时抓取 Polymarket 最新赔率...")
+        from src.etl import fetch_polymarket
+        try:
+            fetch_polymarket.run(recent=True)
+        except Exception as fe:
+            print(f"⚠️ Polymarket 同步失败: {fe}")
 
-            # 2. 市场情绪 (顶级赔率区间) - 此时数据库已是最新
+        # B. [SYNC] 实时运行快速狙击预测 (skip_jit=True，不等待 OpenSky)
+        print(f"🎯 [Sync] 正在为 {target_date} 启动快速狙击预测...")
+        from src.models import predict_sniper
+        try:
+            # 使用 skip_jit=True 确保不会因为 OpenSky 429 或耗时而阻塞
+            sniper_result = predict_sniper.train_and_predict(target_date, skip_jit=True)
+            if sniper_result and "error" in sniper_result: sniper_result = None
+        except Exception as se:
+            print(f"⚠️ Sniper 快速预测失败: {se}")
+
+        # C. 提取最新的市场共识 (从刚刚同步完成的数据库中读取)
+        try:
             conn = get_db_connection()
             query_market = """
                 SELECT outcome_label, price 
                 FROM market_sentiment_snapshots 
                 WHERE target_date = ?
                 AND id IN (SELECT MAX(id) FROM market_sentiment_snapshots WHERE target_date = ? GROUP BY outcome_label)
-                ORDER BY price DESC 
-                LIMIT 1
+                ORDER BY price DESC LIMIT 1
             """
             market_row = conn.execute(query_market, (target_date, target_date)).fetchone()
-            conn.close()
-            
             if market_row:
                 market_consensus = {
                     "outcome": market_row['outcome_label'],
                     "probability": f"{round(market_row['price'] * 100, 1)}%",
                     "raw_price": market_row['price']
                 }
-    except Exception as e:
-        print(f"⚠️ 扩展数据检索失败: {e}")
+            conn.close()
+        except: pass
 
-    # --- 启动异步更新任务 ---
-    def run_pipeline_task():
+    # --- 3. 异步启动：耗时/限流任务 (OpenSky & 全量 ETL) ---
+    def run_async_pipeline():
         try:
-            print("\n" + "="*50)
-            print("🚀 后台流水线启动 (Threaded Unified Pipeline)")
-            print("="*50)
+            print(f"\n🚀 [Async] 后台长耗时任务启动 (Target: {target_date if latest_unresolved else 'None'})...")
             
+            # A. [ASYNC] OpenSky 抓取 (最慢，且易 429)
+            print("🚀 [Async] 正在执行 OpenSky 航班数据抓取...")
+            try: fetch_opensky.run(recent=True) 
+            except Exception as e: print(f"⚠️ OpenSky 异步抓取失败: {e}")
+
+            # B. [ASYNC] 重新运行深度狙击预测 (允许 JIT，补全数据)
+            if latest_unresolved:
+                try: 
+                    print(f"🎯 [Async] 正在为 {target_date} 重新运行深度狙击预测 (允许 JIT)...")
+                    predict_sniper.train_and_predict(target_date, skip_jit=False)
+                except: pass
+
+            # C. [ASYNC] 全量 ETL 流水线
+            print("🚀 [Async] 正在执行全量 ETL 合并与模型重训...")
             build_tsa_db.run(latest=True)
             get_weather_features.run()
-            try: fetch_opensky.run(recent=True)
-            except: pass
-            try: fetch_polymarket.run(recent=True)
-            except: pass
             merge_db.run()
             train_xgb.run()
-            
-            print("\n✅ 后台数据更新流程全部完成")
-            print("="*50 + "\n")
+            print("✅ [Async] 后台流程全部完成")
         except Exception as e:
-            print(f"❌ 后台任务执行崩溃: {e}")
+            print(f"❌ [Async] 后台任务崩溃: {e}")
 
-    thread = threading.Thread(target=run_pipeline_task)
+    thread = threading.Thread(target=run_async_pipeline)
     thread.daemon = True
     thread.start()
 
-    # --- 立即返回响应 ---
+    # --- 4. 返回包含实时赔率的结果 ---
     return jsonify({
         'status': 'success',
-        'message': '任务已在后台启动，以下是双模型预测快照。',
+        'message': '数据已实时同步并返回，全量更新已在后台触发。',
         'prediction_sources': {
-            'long_term_forecast': latest_unresolved,   # 基于全量因子的长期预测 (XGBoost)
-            'short_term_sniper': sniper_result,        # 基于即时航班量的狙击预测 (Sniper)
-            'market_sentiment': market_consensus       # Polymarket 市场共识 (投注最高区间)
+            'long_term_forecast': latest_unresolved,
+            'short_term_sniper': sniper_result,
+            'market_sentiment': market_consensus
         },
         'timestamp': pd.Timestamp.now().isoformat()
-    }), 202
+    })
 
 # API: 狙击模型 (T+0 Nowcasting)
 @app.route('/api/predict_sniper', methods=['POST'])

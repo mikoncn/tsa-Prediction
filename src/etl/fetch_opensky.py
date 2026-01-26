@@ -214,8 +214,42 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-def backfill(days_to_backfill=45):
+def check_cooldown(scope="all", interval_minutes=60):
+    """
+    检查抓取冷却时间，防止高频重复请求。
+    """
+    try:
+        conn = get_db_connection()
+        conn.execute("CREATE TABLE IF NOT EXISTS fetch_metadata (key TEXT PRIMARY KEY, last_run TEXT)")
+        row = conn.execute("SELECT last_run FROM fetch_metadata WHERE key = ?", (f"opensky_{scope}",)).fetchone()
+        
+        if row:
+            last_run = datetime.strptime(row['last_run'], '%Y-%m-%d %H:%M:%S')
+            elapsed = (datetime.now() - last_run).total_seconds() / 60
+            if elapsed < interval_minutes:
+                conn.close()
+                return False, interval_minutes - int(elapsed)
+        
+        # 更新时间戳（先不提交，如果后面真正运行了再由调用者提交或此处直接提交）
+        conn.execute("INSERT OR REPLACE INTO fetch_metadata (key, last_run) VALUES (?, ?)", 
+                     (f"opensky_{scope}", datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+        conn.close()
+        return True, 0
+    except Exception as e:
+        print(f"   [冷却检查异常] {e}")
+        return True, 0 # 异常时保守运行
+
+def backfill(days_to_backfill=45, force=False):
     print(f"=== 启动历史数据回溯任务 (目标范围: 过去 {days_to_backfill} 天) ===")
+    
+    # [NEW] 冷却检查逻辑 (仅在非 force 模式下生效)
+    if not force:
+        scope = "recent" if days_to_backfill <= 7 else "full"
+        can_run, wait_mins = check_cooldown(scope)
+        if not can_run:
+            print(f"   [跳过] OpenSky 抓取处于冷却期，请在 {wait_mins} 分钟后重试。")
+            return
     
     # 确保加载凭据
     load_credentials_list()
@@ -248,22 +282,20 @@ def backfill(days_to_backfill=45):
     
     for d_str in dates_to_check:
         dt_obj = datetime.strptime(d_str, "%Y-%m-%d").date()
-        # [逻辑] 最近 3 天总是强制检查/刷新，以应对 OpenSky 数据滞后修正
+        # [逻辑优化] 最近 3 天不再强制刷新，除非数据量确实过低（判定为未就绪）
         is_recent_window = (today - dt_obj).days <= 3
         
         for icao in AIRPORTS:
             count = existing_map.get((d_str, icao))
             is_dirty = count is not None and count < QUALITY_THRESHOLD
             
-            # 如果是最近3天，即使有数据也建议重跑确认（除非已经是高质量数据，但OpenSky经常变）
-            # 这里保留原有逻辑：如果是最近3天，且数据看起来正常，是否要重跑？
-            # 原始代码逻辑是：if count is None or is_dirty: tasks.append...
-            # 这里我们稍微激进一点：如果是最近3天，总是重跑，确保最新
-            
             should_fetch = False
-            if count is None: should_fetch = True
-            elif is_dirty: should_fetch = True
-            elif is_recent_window: should_fetch = True # 强制刷新最近数据
+            if count is None: 
+                should_fetch = True
+            elif is_dirty: 
+                should_fetch = True
+            # [REMOVED] elif is_recent_window: should_fetch = True 
+            # 删除了无条件强制刷新最近3天的逻辑，改为只有数据不足时才刷新。
             
             if should_fetch:
                 tasks.append((d_str, icao))
@@ -295,22 +327,27 @@ def backfill(days_to_backfill=45):
         
     print("=== 历史回溯任务结束 ===")
 
-def run(recent=False):
+def run(recent=False, force=False):
     if recent:
         print("=== [UI模式] 快速同步最近 3 天数据 ===")
-        backfill(days_to_backfill=3)
+        backfill(days_to_backfill=3, force=force)
     else:
-        backfill(45)
+        backfill(45, force=force)
 
 if __name__ == "__main__":
     import sys
+    force_run = '--force' in sys.argv
     if '--recent' in sys.argv:
-        run(recent=True)
+        run(recent=True, force=force_run)
     elif len(sys.argv) > 1:
         try:
-            days = int(sys.argv[1])
-            backfill(days)
+            # Check if arg 1 is days or --force
+            if sys.argv[1].isdigit():
+                days = int(sys.argv[1])
+                backfill(days, force=force_run)
+            else:
+                run(force=force_run)
         except:
-            run()
+            run(force=force_run)
     else:
-        run()
+        run(force=force_run)

@@ -62,13 +62,12 @@ def load_data():
     
     return df
 
-def train_and_predict(target_date_str):
+def train_and_predict(target_date_str, skip_jit=False):
     """
     执行一次快速训练并给出指定日期的狙击预测。
+    skip_jit: 如果为 True，当缺少航班数据时不会尝试现场抓取 OpenSky，而是直接进入降级模式。
     """
     df = load_data()
-    
-    # 特征工程：生成对预测具有显著影响的自变量
     # 特征工程：生成对预测具有显著影响的自变量
     df['day_of_week'] = df['ds'].dt.dayofweek
     df['month'] = df['ds'].dt.month
@@ -384,16 +383,17 @@ def train_and_predict(target_date_str):
     flight_volume = row[0] if row and row[0] else 0
     
     # [SMART SNIPER LOGIC]
-    # 如果数据库里的数据少得离谱 (比如只有 17 条)，说明数据可能不完整或未抓取。
-    # 此时应触发“即时抓取 (Just-in-Time Fetch)”，而不是直接用错误的 17 去预测。
-    if flight_volume < 500: # 正常阈值通常 > 3000
-        print(f"   [JIT触发] 检测到航班量异常偏低 ({flight_volume})，尝试现场抓取...")
+    # 只有当数据库里完全没有该日期的任何航班数据时，才触发 JIT 现场抓取。
+    # 只要有数据（哪怕量少），也认为 OpenSky 已经尽力了，不再现场强刷，避免 429。
+    if flight_volume == 0 and not skip_jit: 
+        print(f"   [JIT触发] 检测到航班量完全缺失，尝试现场抓取...")
+        total_jit = 0
+        jit_data = []
         try:
             # 动态导入防止循环引用
-            import fetch_opensky
+            from src.etl import fetch_opensky
             
-            # [FIX] 响应用户需求，保持与主抓取逻辑一致，使用全部 Top 10 机场
-            # 而不是仅抓取 Top 5。虽然速度稍慢，但数据口径完全统一。
+            # 使用 Top 10 机场保持一致
             top_airports = fetch_opensky.AIRPORTS
             
             for icao in top_airports:
@@ -401,22 +401,13 @@ def train_and_predict(target_date_str):
                 if count and count >= 10:
                     total_jit += count
                     jit_data.append((target_date_str, icao, count))
-                elif count:
-                    print(f"   [Sniper-JIT] 丢弃低质量数据: {icao} ({count} 架次)")
             
-            if total_jit > flight_volume:
+            if total_jit > 0:
                 print(f"   [JIT成功] 现场抓取到 {total_jit} 架次，更新数据库...")
-                flight_volume = total_jit * 2 # 粗略估算：Top 5 约占总量的 50%? 或者只用 Top 5 代表趋势。
-                # 更稳妥：把抓到的存入 DB，再次查询 sum
                 fetch_opensky.save_to_db(jit_data)
                 
-                # Re-query distinct sum from DB to be accurate
-                conn = get_db_connection()
-                row = conn.execute("SELECT SUM(arrival_count) FROM flight_stats WHERE date = ?", (target_date_str,)).fetchone()
-                if row and row[0]:
-                    flight_volume = row[0]
-                conn.close()
-                
+                # 更新 flight_volume
+                flight_volume = total_jit
         except Exception as e:
             print(f"   [JIT失败] 现场抓取遇到问题: {e}")
 
@@ -432,6 +423,11 @@ def train_and_predict(target_date_str):
         conn.close()
         # 如果昨天有数，用昨天的；否则用历史平均
         flight_volume = row_y[0] if (row_y and row_y[0] is not None and row_y[0] > 500) else avg_flights
+        
+        # [NEW] 响应用户需求：如果最终依然没有有效航班数据，提示无法运行模型
+        if flight_volume < 100:
+            raise ValueError("没有航班数据，无法运行这个狙击模型。请先更新 OpenSky 或等待数据同步。")
+            
         is_fallback = True
         
     # 打包输入特征向量
