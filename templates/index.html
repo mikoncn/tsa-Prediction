@@ -95,11 +95,31 @@
         <div v-if="weeklyState.breakdown && weeklyState.breakdown.length > 0" 
              style="background: white; padding: 20px; border-radius: 12px; margin-top: 30px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05);">
             
-            <h3 style="margin: 0 0 15px 0; font-size: 1.1em; color: #666; display: flex; align-items: center; gap: 8px;">
-                <span>🧮 周度客流计算详情 (Calculation Detail)</span>
+            <h3 style="margin: 0 0 15px 0; font-size: 1.1em; color: #666; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span>🧮 周度客流计算详情</span>
+                    <!-- [NEW] Week Selector Dropdown -->
+                    <select v-model="weeklyState.selected" @change="updateWeeklyState($event.target.value)" 
+                            style="background: #f8f9fa; border: 1px solid #ddd; padding: 4px 8px; border-radius: 6px; font-size: 0.8em; color: #333; outline: none; cursor: pointer;">
+                        <option v-for="opt in weeklyState.options" :key="opt.value" :value="opt.value">
+                            {{ opt.label }}
+                        </option>
+                    </select>
+                </div>
+                
+                <!-- [NEW] Challenger Toggle -->
+                <div style="font-size: 0.6em; display: flex; align-items: center; gap: 10px;">
+                    <label style="cursor: pointer; display: flex; align-items: center; gap: 5px; user-select: none;">
+                        <input type="checkbox" v-model="weeklyState.showChallenger" :disabled="!challengerData.length">
+                        <span :style="{ color: weeklyState.showChallenger ? '#6f42c1' : '#666', fontWeight: weeklyState.showChallenger ? 'bold' : 'normal' }">
+                            ⚔️ 对比挑战者 (Compare Challenger)
+                        </span>
+                    </label>
+                </div>
             </h3>
 
-            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-family: 'SF Mono', Consolas, monospace; font-size: 0.95em;">
+            <!-- Row 1: Standard Forecast -->
+            <div style="display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; font-family: 'SF Mono', Consolas, monospace; font-size: 0.9em; margin-bottom: 10px; overflow-x: auto; padding-bottom: 5px;">
                 
                 <template v-for="(item, index) in weeklyState.breakdown" :key="item.date">
                     
@@ -107,8 +127,8 @@
                     <span v-if="index > 0" style="color: #ccc; font-weight: bold;">+</span>
 
                     <!-- Data Item -->
-                    <div style="display: flex; flex-direction: column; align-items: center; background: #f8f9fa; padding: 6px 12px; border-radius: 6px;">
-                        <span style="font-size: 0.8em; color: #999; margin-bottom: 2px;">{{ item.label }}</span>
+                    <div style="display: flex; flex-direction: column; align-items: center; background: #f8f9fa; padding: 4px 10px; border-radius: 6px;">
+                        <span style="font-size: 0.7em; color: #999; margin-bottom: 2px;">{{ item.label }}</span>
                         <!-- Blue for History, Orange for Prediction -->
                         <span :style="{ color: item.type === 'history' ? '#007bff' : (item.type === 'sniper' ? '#dc3545' : '#fd7e14'), fontWeight: 'bold' }">
                             {{ item.value.toLocaleString() }}
@@ -121,11 +141,79 @@
                 <span style="color: #ccc; font-weight: bold; margin: 0 5px;">=</span>
 
                 <!-- Total -->
-                <div style="display: flex; flex-direction: column; align-items: center; background: #e8f5e9; padding: 6px 15px; border-radius: 6px; border: 1px solid #c3e6cb;">
-                   <span style="font-size: 0.8em; color: #28a745; margin-bottom: 2px;">Total</span>
-                   <span style="color: #28a745; font-weight: bold; font-size: 1.1em;">
+                <div style="display: flex; flex-direction: column; align-items: center; background: #e8f5e9; padding: 4px 12px; border-radius: 6px; border: 1px solid #c3e6cb;">
+                   <span style="font-size: 0.75em; color: #28a745; margin-bottom: 2px;">Total</span>
+                   <span style="color: #28a745; font-weight: bold; font-size: 1.05em;">
                        {{ weeklyState.sum ? weeklyState.sum.toLocaleString() : '...' }}
                    </span>
+                </div>
+
+                <!-- [NEW] Probability Ranges (Standard) -->
+                <div v-if="weeklyState.ranges.standard && weeklyState.ranges.standard.maxError" 
+                     style="margin-left: 20px; display: flex; gap: 10px; border-left: 2px solid #eee; padding-left: 20px;">
+                    <div style="background: #fffde7; padding: 4px 12px; border-radius: 6px; border: 1px dashed #fbc02d; font-size: 0.85em;">
+                        <div style="color: #f57f17; font-weight: bold; margin-bottom: 2px;">⚠️ 最大误差可能性 (Max Error Range)</div>
+                        <div style="font-family: monospace; color: #333;">
+                            {{ weeklyState.ranges.standard.maxError.min.toLocaleString() }} ~ {{ weeklyState.ranges.standard.maxError.max.toLocaleString() }}
+                        </div>
+                    </div>
+                    <div style="background: #f1f8e9; padding: 4px 12px; border-radius: 6px; border: 1px dashed #8bc34a; font-size: 0.85em;">
+                        <div style="color: #558b2f; font-weight: bold; margin-bottom: 2px;">🎯 平均误差可能性 (Avg Error Range)</div>
+                        <div style="font-family: monospace; color: #333;">
+                            {{ weeklyState.ranges.standard.avgError.min.toLocaleString() }} ~ {{ weeklyState.ranges.standard.avgError.max.toLocaleString() }}
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+            
+            <!-- Row 2: Challenger Forecast (Comparison) -->
+            <div v-if="weeklyState.showChallenger" style="display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; font-family: 'SF Mono', Consolas, monospace; font-size: 0.9em; margin-top: 15px; border-top: 1px dashed #ddd; padding-top: 15px; overflow-x: auto; padding-bottom: 5px;">
+                
+                <template v-for="(item, index) in weeklyState.challengerBreakdown" :key="item.date + '_c'">
+                    
+                    <!-- Plus Sign -->
+                    <span v-if="index > 0" style="color: #ccc; font-weight: bold;">+</span>
+
+                    <!-- Data Item -->
+                    <div style="display: flex; flex-direction: column; align-items: center; background: #f8f9fa; padding: 4px 10px; border-radius: 6px; border-bottom: 2px solid transparent;"
+                         :style="{ borderColor: item.type === 'challenger' ? '#6f42c1' : 'transparent' }">
+                        <span style="font-size: 0.7em; color: #999; margin-bottom: 2px;">{{ item.label }}</span>
+                        <!-- Purple for Challenger, else matches Row 1 -->
+                        <span :style="{ color: item.type === 'history' ? '#007bff' : (item.type === 'sniper' ? '#dc3545' : (item.type === 'challenger' ? '#6f42c1' : '#fd7e14')), fontWeight: 'bold' }">
+                            {{ item.value.toLocaleString() }}
+                        </span>
+                    </div>
+
+                </template>
+
+                <!-- Equals Sign -->
+                <span style="color: #ccc; font-weight: bold; margin: 0 5px;">=</span>
+
+                <!-- Total -->
+                <div style="display: flex; flex-direction: column; align-items: center; background: #f3e5f5; padding: 4px 12px; border-radius: 6px; border: 1px solid #e1bee7;">
+                   <span style="font-size: 0.75em; color: #6f42c1; margin-bottom: 2px;">Challenger Total</span>
+                   <span style="color: #6f42c1; font-weight: bold; font-size: 1.05em;">
+                       {{ weeklyState.challengerSum ? weeklyState.challengerSum.toLocaleString() : '...' }}
+                   </span>
+                </div>
+
+                <!-- [NEW] Probability Ranges (Challenger) -->
+                <div v-if="weeklyState.ranges.challenger && weeklyState.ranges.challenger.maxError" 
+                     style="margin-left: 20px; display: flex; gap: 10px; border-left: 2px solid #eee; padding-left: 20px;">
+                    <div style="background: #fff3e0; padding: 4px 12px; border-radius: 6px; border: 1px dashed #ffa000; font-size: 0.85em;">
+                        <div style="color: #e65100; font-weight: bold; margin-bottom: 2px;">⚔️ 挑战者最大误差</div>
+                        <div style="font-family: monospace; color: #333;">
+                            {{ weeklyState.ranges.challenger.maxError.min.toLocaleString() }} ~ {{ weeklyState.ranges.challenger.maxError.max.toLocaleString() }}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Delta Badge -->
+                <div v-if="weeklyState.sum && weeklyState.challengerSum" 
+                     :style="{ color: (weeklyState.challengerSum - weeklyState.sum) > 0 ? '#28a745' : '#dc3545' }"
+                     style="font-size: 0.9em; font-weight: bold; margin-left: 10px;">
+                     {{ (weeklyState.challengerSum - weeklyState.sum) > 0 ? '+' : '' }}{{ (weeklyState.challengerSum - weeklyState.sum).toLocaleString() }}
                 </div>
 
             </div>
@@ -140,6 +228,9 @@
                 </span>
                 <span style="display: flex; align-items: center; gap: 5px;">
                     <span style="width: 8px; height: 8px; background: #fd7e14; border-radius: 50%;"></span> 由 AI 模型预测 (Prediction)
+                </span>
+                <span style="display: flex; align-items: center; gap: 5px;">
+                    <span style="width: 8px; height: 8px; background: #6f42c1; border-radius: 50%;"></span> 挑战者模型 (Challenger)
                 </span>
             </div>
 

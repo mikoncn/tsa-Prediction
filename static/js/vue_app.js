@@ -25,6 +25,12 @@ const App = {
         const marketData = ref({});
         const validationHistory = ref([]);
         
+        // [NEW] Global Metrics for Probability Ranges
+        const globalMetrics = reactive({
+            maxError: 0,
+            avgError: 0
+        });
+        
         const years = ref([]);
         const activeTab = ref('validation');
         const showModal = ref(false); // Export Modal
@@ -45,11 +51,13 @@ const App = {
         // [NEW] Weekly Prediction State
         const weeklyState = reactive({
             selected: '',
-            options: [
-                { label: '正在计算数据...', value: '' } // Dummy init to prove binding works
-            ],
+            options: [],
             sum: null,
-            breakdown: [] // [NEW] Detail list for formula display
+            breakdown: [], 
+            showChallenger: false, // [NEW] Toggle state
+            challengerSum: null,   // [NEW] Comparison sum
+            challengerBreakdown: [], // [NEW] Comparison list
+            ranges: { standard: null, challenger: null } // [NEW] Probability ranges
         });
         
         // Sniper Result
@@ -143,6 +151,13 @@ const App = {
                 // 2. Validation Table
                 if (res.validation) {
                     validationHistory.value = res.validation.reverse();
+                    
+                    // Update global metrics
+                    if (validationHistory.value.length > 0) {
+                        const rates = validationHistory.value.map(d => parseFloat(d.error_rate) || 0);
+                        globalMetrics.maxError = Math.max(...rates);
+                        globalMetrics.avgError = rates.reduce((a, b) => a + b, 0) / rates.length;
+                    }
                 }
                 
                 // [NEW] Load Persisted Sniper Prediction
@@ -262,52 +277,107 @@ const App = {
             let count = 0;
             
             let breakdownList = [];
+            let challengerList = []; // [NEW] Challenger comparison list
+            let challengerSum = 0;
+            let challengerCount = 0;
             
             // Debug Log
             console.log("Calculating Weekly. Sniper State:", sniperResult.date, sniperResult.value);
 
             // Sum next 7 days starting from Monday
             for (let i = 0; i < 7; i++) {
-                const current = new Date(monday);
-                current.setDate(monday.getDate() + i);
-                const dateStr = current.getFullYear() + '-' + String(current.getMonth()+1).padStart(2,'0') + '-' + String(current.getDate()).padStart(2,'0');
-                // Chinese label "1月19日"
-                const label = current.toLocaleDateString('zh-CN', {month:'numeric', day:'numeric'});
+                const d = new Date(monday);
+                d.setDate(monday.getDate() + i);
+                const dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+                const label = d.toLocaleDateString('zh-CN', {month:'numeric', day:'numeric'});
                 
+                // --- Logic A: Standard Breakdown ---
+                let valA = 0;
+                let typeA = 'prediction';
+                let labelA = label;
+
                 // 1. Try Actual Data First
                 const actual = allData.value.find(x => x.x === dateStr);
                 
                 if (actual && actual.y !== null) {
-                    sum += actual.y;
-                    count++;
-                    breakdownList.push({
-                         date: dateStr, label: label, value: actual.y, type: 'history'
-                    });
+                    valA = actual.y;
+                    typeA = 'history';
                 } 
                 // 2. Check Sniper Result (High Priority Forecast)
                 else if (sniperResult.date === dateStr && sniperResult.value) {
-                    sum += sniperResult.value;
-                    count++;
-                    breakdownList.push({
-                         date: dateStr, label: label + ' (Sniper)', value: sniperResult.value, type: 'sniper'
-                    });
+                    valA = sniperResult.value;
+                    typeA = 'sniper';
+                    labelA += ' (Sniper)';
                 }
                 // 3. Fallback to General Prediction
                 else {
                     const p = predictions.value.find(x => x.x === dateStr);
-                    if (p && p.y) {
-                        sum += p.y;
-                        count++;
-                        breakdownList.push({
-                             date: dateStr, label: label, value: p.y, type: 'prediction'
-                        });
-                    }
+                    if (p && p.y) valA = p.y;
+                }
+                
+                if (valA > 0) {
+                    sum += valA;
+                    count++;
+                    breakdownList.push({ date: dateStr, label: labelA, value: valA, type: typeA });
+                }
+
+                // --- Logic B: Challenger Breakdown ---
+                // Base logic is SAME as A (History & Sniper are absolute truth/nowcast)
+                // Difference is only in Step 3 (Forecast Source)
+                let valB = valA; 
+                let typeB = typeA; 
+                let labelB = labelA;
+
+                if (typeA === 'prediction') { // Only diverge if we are using the generic forecast
+                     // Try find Challenger Data
+                     const ch = challengerData.value.find(x => x.x === dateStr);
+                     if (ch && ch.y) {
+                         valB = Math.round(ch.y); // [FIX] Round to int
+                         typeB = 'challenger';
+                         labelB = label + ' (Challenger)';
+                     }
+                }
+                
+                if (valB > 0) {
+                    challengerSum += valB;
+                    challengerCount++;
+                    challengerList.push({ date: dateStr, label: labelB, value: valB, type: typeB });
                 }
             }
             
+            // [NEW] Calculate Probability Ranges
+            const calcRanges = (total, list, errorRate) => {
+                if (!total || errorRate === 0) return null;
+                // Calculate delta based ONLY on forecast components (sniper, prediction, challenger)
+                let forecastDelta = 0;
+                list.forEach(item => {
+                    if (item.type !== 'history') {
+                        forecastDelta += item.value * (errorRate / 100);
+                    }
+                });
+                return {
+                    min: Math.round(total - forecastDelta),
+                    max: Math.round(total + forecastDelta)
+                };
+            };
+
             // Update stats
             weeklyState.sum = count > 0 ? sum : null;
             weeklyState.breakdown = breakdownList;
+            
+            // [NEW] Update Challenger Stats
+            weeklyState.challengerSum = challengerCount > 0 ? challengerSum : null;
+            weeklyState.challengerBreakdown = challengerList;
+
+            // [NEW] Populate Ranges
+            weeklyState.ranges.standard = {
+                maxError: calcRanges(sum, breakdownList, globalMetrics.maxError),
+                avgError: calcRanges(sum, breakdownList, globalMetrics.avgError)
+            };
+            weeklyState.ranges.challenger = {
+                maxError: calcRanges(challengerSum, challengerList, globalMetrics.maxError),
+                avgError: calcRanges(challengerSum, challengerList, globalMetrics.avgError)
+            };
         };
         
         const updateWeeklyState = (val) => {
@@ -426,7 +496,7 @@ const App = {
                     alert(`✅ 挑战成功!\n模型: ${res.data.model}\nMAPE: ${(res.data.mape*100).toFixed(2)}%`);
                     // Update chart
                     if (res.data.forecast) {
-                        challengerData.value = res.data.forecast.map(i => ({ x: i.date, y: i.predicted }));
+                        challengerData.value = res.data.forecast.map(i => ({ x: i.date, y: i.forecast }));
                     }
                 }
             } catch(e) { alert(e); }
@@ -510,8 +580,8 @@ const App = {
         
         // [NEW] Reactive Watcher to handle async data loading
         // Ensures options are generated only when ALL data is ready
-        watch([predictions, marketData, allData, sniperResult], () => {
-             console.log("Data updated (Predictions, Market, History, or Sniper), regenerating weekly options...");
+        watch([predictions, marketData, allData, sniperResult, challengerData], () => {
+             console.log("Data updated (Predictions, Market, History, Sniper, or Challenger), regenerating weekly options...");
              generateWeeklyOptions();
         });
 

@@ -99,8 +99,8 @@ def load_data_and_split():
     last_actual_date = train_df['date'].max()
     print(f"Last Actual Date: {last_actual_date.date()}")
     
-    # Generate next 7 days (Safe horizon for Lag-7)
-    future_dates = [last_actual_date + pd.Timedelta(days=i) for i in range(1, 8)]
+    # Generate next 14 days (Safe horizon for longer Weekly View coverage)
+    future_dates = [last_actual_date + pd.Timedelta(days=i) for i in range(1, 15)]
     future_df = pd.DataFrame({'date': future_dates})
     
     # Merge existing features (Weather/Holiday/Throughput for Lags) from original df
@@ -119,21 +119,45 @@ def load_data_and_split():
     future_df['day'] = future_df['date'].dt.day
     future_df['is_weekend'] = future_df['date'].dt.dayofweek.isin([5, 6]).astype(int)
     
-    # Helper for Lags
-    def get_lag_value(target_date, lag_days, source_df, col_name='throughput'):
+    # [LAG BRIDGE] Load Predictions as Fallback for Lags
+    print("Loading predictions as lag fallbacks...")
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=30)
+        # Get LATEST prediction for each future date
+        pred_df = pd.read_sql("""
+            SELECT target_date as date, predicted_throughput as forecast 
+            FROM prediction_history 
+            WHERE id IN (SELECT MAX(id) FROM prediction_history GROUP BY target_date)
+        """, conn)
+        conn.close()
+        pred_df['date'] = pd.to_datetime(pred_df['date'])
+        # Merge into combined df for lookup
+        df_full_lookup = df.merge(pred_df, on='date', how='outer')
+    except:
+        df_full_lookup = df.copy()
+        df_full_lookup['forecast'] = np.nan
+
+    # Helper for Lags with bridging
+    def get_lag_value(target_date, lag_days, lookup_df):
         past_date = target_date - pd.Timedelta(days=lag_days)
-        # Look in source_df (history)
-        row = source_df[source_df['date'] == past_date]
+        row = lookup_df[lookup_df['date'] == past_date]
         if not row.empty:
-            return row.iloc[0][col_name]
-        return 0 
+            # 1. Primary: Real throughput
+            if pd.notnull(row.iloc[0].get('throughput')) and row.iloc[0]['throughput'] > 100000:
+                return row.iloc[0]['throughput']
+            # 2. Secondary: Persisted Forecast
+            if pd.notnull(row.iloc[0].get('forecast')) and row.iloc[0]['forecast'] > 100000:
+                return row.iloc[0]['forecast']
+            # 3. Tertiary: Last Year (lag_364 is handled separately, but we could fallback here)
+        
+        # 4. Final Fallback: Return a sensible default or previous row to avoid 0 crash
+        return 2000000 # Typical level to prevent zero-scale crash
         
     us_holidays = holidays.US(years=[2024, 2025, 2026])
     
-    # Calculate Future through Lags
-    # Need to pass original 'df' (complete with flights)
-    future_df['lag_7'] = future_df['date'].apply(lambda x: get_lag_value(x, 7, df, 'throughput'))
-    future_df['lag_364'] = future_df['date'].apply(lambda x: get_lag_value(x, 364, df, 'throughput'))
+    # Calculate Future through Lags (Bridged)
+    future_df['lag_7'] = future_df['date'].apply(lambda x: get_lag_value(x, 7, df_full_lookup))
+    future_df['lag_364'] = future_df['date'].apply(lambda x: get_lag_value(x, 364, df_full_lookup))
     
     # Calculate Future Flight Features (Persistence)
     # We use the LAST known Flight MA 7 from history and assume it flatlines based on day of week?
