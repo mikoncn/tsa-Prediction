@@ -85,8 +85,10 @@
         <!-- Stats Panel -->
         <stats-panel 
             :stats="stats" 
-            :prediction="predictionState"
+            :prediction="predictionState" 
+            :weekly-state="weeklyState"
             @update:selected-date="onPredictionDateChange"
+            @update-weekly="updateWeeklyState"
         ></stats-panel>
 
         <!-- Review Panel -->
@@ -119,6 +121,15 @@
                     </h2>
                 </div>
                 
+                <h2 @click="activeTab = 'ai_advice'" 
+                    :style="{ 
+                        borderLeft: '5px solid ' + (activeTab === 'ai_advice' ? '#007bff' : '#ccc'), 
+                        opacity: activeTab === 'ai_advice' ? 1 : 0.5 
+                    }"
+                    style="padding-left: 10px; cursor: pointer; margin-bottom: 10px;">
+                    🤖 AI 建议
+                </h2>
+                
                 <div style="flex-grow: 1;"></div>
                 <button @click="showModal = true" class="export-btn" style="background: #28a745; color: white; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.9em; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 6px rgba(40, 167, 69, 0.15); margin-bottom: 10px;">
                     📥 一键导出预测
@@ -135,7 +146,19 @@
             </div>
 
             <div v-show="activeTab === 'polymarket'">
-                <polymarket-grid :market-data="marketData"></polymarket-grid>
+                <polymarket-grid 
+                    :market-data="marketData"
+                    :is-syncing="isSyncingMarket"
+                    @sync-market="syncMarket"
+                ></polymarket-grid>
+            </div>
+
+            <div v-show="activeTab === 'ai_advice'">
+                <div class="ai-advice-placeholder" style="padding: 40px; text-align: center; background: #f8f9ff; border: 2px dashed #007bff; border-radius: 12px; color: #007bff;">
+                    <div style="font-size: 40px; margin-bottom: 15px;">🧠</div>
+                    <h3 style="margin: 0;">AI 策略引擎就绪</h3>
+                    <p style="color: #666; margin-top: 10px;">正在等待指令生成具体的战术建议...</p>
+                </div>
             </div>
         </div>
     </div>

@@ -346,7 +346,16 @@ def update_data():
             if sniper_data and "error" not in sniper_data:
                 sniper_result = sniper_data
                 
-            # 2. 市场情绪 (顶级赔率区间)
+            # 🎯 [升级] 实时同步 Polymarket 赔率 (同步执行，确保数据最新)
+            print(f"⚡ 正在实时抓取 Polymarket 最新赔率...")
+            from src.etl import fetch_polymarket
+            try:
+                # 只同步最近 10 天，速度较快
+                fetch_polymarket.run(recent=True)
+            except Exception as fe:
+                print(f"⚠️ 实时赔率同步失败 (跳过): {fe}")
+
+            # 2. 市场情绪 (顶级赔率区间) - 此时数据库已是最新
             conn = get_db_connection()
             query_market = """
                 SELECT outcome_label, price 

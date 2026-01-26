@@ -1,6 +1,6 @@
 export default {
     name: 'StatsPanel',
-    props: ['stats', 'prediction'],
+    props: ['stats', 'prediction', 'weeklyState'],
     template: `
     <div class="stats-panel" style="display: flex; justify-content: space-around; margin-top: 20px; text-align: center;">
         <div class="stat-card">
@@ -27,6 +27,24 @@ export default {
             </h3>
             <div class="value" style="font-size: 1.5em; font-weight: bold; color: #28a745;">
                 {{ prediction.value ? (prediction.value / 1000000).toFixed(2) + 'M' : '-' }}
+            </div>
+        </div>
+        <div class="stat-card" style="border: 2px solid #6f42c1; background: #f3f0ff; min-width: 250px;">
+            <h3>
+                预测一周客流
+                <select 
+                    :value="weeklyState?.selected" 
+                    @change="$emit('update-weekly', $event.target.value)"
+                    style="font-size: 0.8em; padding: 2px; margin-left: 5px; border-radius: 4px; border: 1px solid #ccc; max-width: 140px;"
+                >
+                    <option v-if="!weeklyState?.options?.length" value="">Loading...</option>
+                    <option v-for="opt in weeklyState?.options" :key="opt.value" :value="opt.value">
+                        {{ opt.label }}
+                    </option>
+                </select>
+            </h3>
+            <div class="value" style="font-size: 1.5em; font-weight: bold; color: #6f42c1;">
+                {{ weeklyState?.sum ? (weeklyState.sum / 1000000).toFixed(2) + 'M' : '-' }}
             </div>
         </div>
     </div>

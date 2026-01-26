@@ -47,6 +47,12 @@ const API = {
         const res = await fetch('/api/run_challenger', { method: 'POST' });
         if (!res.ok) throw new Error('Challenger run failed');
         return await res.json();
+    },
+
+    async syncMarketSentiment() {
+        const res = await fetch('/api/sync_market_sentiment', { method: 'POST' });
+        if (!res.ok) throw new Error('Market sync failed');
+        return await res.json();
     }
 };
 

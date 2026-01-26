@@ -1,4 +1,4 @@
-import { createApp, ref, onMounted, computed, reactive } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
+import { createApp, ref, onMounted, computed, reactive, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
 import API from './api.js';
 import ControlPanel from './components/ControlPanel.js';
 import StatsPanel from './components/StatsPanel.js';
@@ -40,6 +40,15 @@ const App = {
             options: [],
             selectedDate: '',
             value: null
+        });
+        
+        // [NEW] Weekly Prediction State
+        const weeklyState = reactive({
+            selected: '',
+            options: [
+                { label: '正在计算数据...', value: '' } // Dummy init to prove binding works
+            ],
+            sum: null
         });
         
         // Sniper Result
@@ -126,6 +135,10 @@ const App = {
                 combined.sort((a,b) => new Date(a.x) - new Date(b.x));
                 predictions.value = combined;
                 
+                // [NEW] Generate Weekly Options and Sum
+                console.log("Calling generateWeeklyOptions with", combined.length, "items");
+                generateWeeklyOptions();
+                
                 // 2. Validation Table
                 if (res.validation) {
                     validationHistory.value = res.validation.reverse();
@@ -134,21 +147,150 @@ const App = {
             } catch (e) { console.error(e); }
         };
 
+        // [NEW] Generate Weekly Options (Mon-Sun) based on ALL predictions
+        const generateWeeklyOptions = () => {
+            if (!predictions.value.length) {
+                console.warn("No predictions to generate options");
+                return;
+            }
+            
+            // Get active market keys for filtering
+            // keys example: "january-19-january-25"
+            // We want to match against these to show only relevant weeks
+            const activeKeys = Object.keys(marketData.value || {});
+            console.log("Active Market Keys:", activeKeys);
+            
+            // Find all Mondays in the dataset
+            const mondayMap = new Set();
+            predictions.value.forEach(p => {
+                const parts = p.x.split('-');
+                const d = new Date(parts[0], parts[1]-1, parts[2]);
+                const day = d.getDay();
+                const diff = day === 0 ? 6 : day - 1; 
+                const monday = new Date(d);
+                monday.setDate(d.getDate() - diff);
+                mondayMap.add(monday.getFullYear() + '-' + String(monday.getMonth()+1).padStart(2, '0') + '-' + String(monday.getDate()).padStart(2, '0'));
+            });
+            
+            const sortedMondays = Array.from(mondayMap).sort((a,b) => new Date(b) - new Date(a));
+            
+            weeklyState.options = [];
+            
+            sortedMondays.forEach(mStr => {
+                const parts = mStr.split('-');
+                const m = new Date(parts[0], parts[1]-1, parts[2]);
+                const s = new Date(m);
+                s.setDate(m.getDate() + 6); // Sunday
+                
+                // 1. Display Label: "1月19日 - 1月25日" (Chinese)
+                const labelStart = m.toLocaleDateString('zh-CN', {month:'numeric', day:'numeric'});
+                const labelEnd = s.toLocaleDateString('zh-CN', {month:'numeric', day:'numeric'});
+                const displayLabel = `${labelStart} - ${labelEnd}`;
+                
+                // 2. Match Key Construction (to match "january-19-january-25")
+                // Needs Full English Month Name Lowercase
+                const monName = m.toLocaleDateString('en-US', {month:'long'}).toLowerCase();
+                const sunName = s.toLocaleDateString('en-US', {month:'long'}).toLowerCase();
+                const matchKey = `${monName}-${m.getDate()}-${sunName}-${s.getDate()}`;
+                
+                // Filter: Only add if matchKey exists in marketData
+                // OR if it's the current week (optional fallback)
+                // User said: "只有那个盘里能显示的选项，那个盘里有这个选项的时候，我们才显示"
+                // So strict matching is safer.
+                
+                // Debug log
+                // console.log(`Checking ${matchKey} against active keys`);
+                
+                if (activeKeys.includes(matchKey)) {
+                    weeklyState.options.push({
+                        label: displayLabel,
+                        value: mStr // The Monday date string for calculation
+                    });
+                }
+            });
+            
+            if (weeklyState.options.length > 0) {
+                 if (predictionState.selectedDate) {
+                     // Try to sync with selected daily date
+                     const target = new Date(predictionState.selectedDate);
+                     const day = target.getDay();
+                     const diff = day === 0 ? 6 : day - 1;
+                     const targetMon = new Date(target);
+                     targetMon.setDate(target.getDate() - diff);
+                     const tStr = targetMon.getFullYear() + '-' + String(targetMon.getMonth()+1).padStart(2,'0') + '-' + String(targetMon.getDate()).padStart(2,'0');
+                     
+                     if (weeklyState.options.some(o => o.value === tStr)) {
+                         weeklyState.selected = tStr;
+                     } else {
+                         weeklyState.selected = weeklyState.options[0].value;
+                     }
+                } else {
+                    weeklyState.selected = weeklyState.options[0].value;
+                }
+                calculateWeeklySum(weeklyState.selected);
+            } else {
+                // If no match found (e.g. data not loaded yet), add a fallback or leave empty?
+                // Maybe the keys in marketData are slightly different?
+                // Let's add a debug fallback if empty so user sees SOMETHING in dev
+                console.warn("No matching weekly options found. Keys available:", activeKeys);
+                
+                // Double check if keys might be swapped or format diff "january-26-february-1"
+                // logic covers cross-month since we use sunName.
+            }
+        };
+
+        // [NEW] Helper to sum Mon-Sun traffic for a specific Monday
+        // Hybrid Mode: Uses Actual History if available, otherwise Forecast
+        const calculateWeeklySum = (mondayStr) => {
+            if (!mondayStr) return;
+            // Robust parsing
+            const parts = mondayStr.split('-');
+            const monday = new Date(parts[0], parts[1]-1, parts[2]);
+            
+            let sum = 0;
+            let count = 0;
+            
+            // Sum next 7 days starting from Monday
+            for (let i = 0; i < 7; i++) {
+                const current = new Date(monday);
+                current.setDate(monday.getDate() + i);
+                const dateStr = current.getFullYear() + '-' + String(current.getMonth()+1).padStart(2,'0') + '-' + String(current.getDate()).padStart(2,'0');
+                
+                // 1. Try Actual Data First
+                const actual = allData.value.find(x => x.x === dateStr);
+                
+                if (actual && actual.y !== null) {
+                    sum += actual.y;
+                    count++;
+                } else {
+                    // 2. Fallback to Prediction
+                    const p = predictions.value.find(x => x.x === dateStr);
+                    if (p && p.y) {
+                        sum += p.y;
+                        count++;
+                    }
+                }
+            }
+            
+            // Update stats
+            weeklyState.sum = count > 0 ? sum : null;
+        };
+        
+        const updateWeeklyState = (val) => {
+            weeklyState.selected = val;
+            calculateWeeklySum(val);
+        };
+
         const updatePredictionDisplay = (date) => {
             if (!date) return;
             // Find in options first (Forecast)
             const opt = predictionState.options.find(o => o.date === date);
             if (opt) {
                 predictionState.value = opt.value;
-                return;
-            }
-            
-            // Fallback to Chart Data (History)
-            let hit = predictions.value.find(p => p.x === date);
-            if (hit) {
-                predictionState.value = hit.y;
             } else {
-                predictionState.value = null;
+                // Try finding in history/combined
+                const p = predictions.value.find(x => x.x === date);
+                predictionState.value = p ? p.y : null;
             }
         };
 
@@ -156,6 +298,7 @@ const App = {
         const onPredictionDateChange = (val) => {
             predictionState.selectedDate = val;
             updatePredictionDisplay(val);
+            calculateWeeklySum(val); // [NEW] Sync weekly stat
         };
 
         const loadRaw = async () => {
@@ -175,6 +318,24 @@ const App = {
             try {
                 marketData.value = await API.getMarketSentiment();
             } catch (e) { console.error(e); }
+        };
+
+        const isSyncingMarket = ref(false);
+        const syncMarket = async () => {
+            isSyncingMarket.value = true;
+            try {
+                const res = await API.syncMarketSentiment();
+                if (res.status === 'success') {
+                    await loadMarket();
+                    alert('⚡ 市场赔率已实时同步！');
+                } else {
+                    alert('❌ 同步失败: ' + res.message);
+                }
+            } catch (e) {
+                alert('❌ 同步出错: ' + e);
+            } finally {
+                isSyncingMarket.value = false;
+            }
         };
 
         const updateData = async () => {
@@ -310,6 +471,13 @@ const App = {
             loadRaw(); // Preload Raw
             loadMarket(); // Preload Market
         });
+        
+        // [NEW] Reactive Watcher to handle async data loading
+        // Ensures options are generated only when ALL data is ready
+        watch([predictions, marketData, allData], () => {
+             console.log("Data updated (Predictions, Market, or History), regenerating weekly options...");
+             generateWeeklyOptions();
+        });
 
         return {
             years, filterYear, setQuickRange,
@@ -318,7 +486,9 @@ const App = {
             stats, predictionState, updatePredictionDisplay,
             activeTab, showModal, showSniperModal, sniperResult,
             currentChartData, currentAnnotations, chartRef,
-            onPredictionDateChange, loadRaw, isUpdating
+            onPredictionDateChange, loadRaw, isUpdating,
+            isSyncingMarket, syncMarket,
+            weeklyState, updateWeeklyState
         };
     }
 };
