@@ -424,29 +424,63 @@ if __name__ == "__main__":
         # 【核心智能切换逻辑 (Smart Sensing)】：
         #不再依赖硬编码的时间 (10:00)，而是直接询问数据库最新数据到了哪一天。
         
-        now = datetime.now()
-        yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        # [SMART GAP DETECTION LOGIC]
+        # 目标：找到“有航班数据”但“还没有TSA数据”的那一天。
+        # 逻辑：Target = Max(TSA_Date) + 1 Day.
         
-        # 1. Check DB for max date
         try:
             conn = sqlite3.connect(DB_PATH)
-            row = conn.execute("SELECT MAX(date) FROM flight_stats").fetchone()
-            conn.close()
-            max_db_date = row[0] if row else None
-        except Exception as e:
-            print(f"   [警告] 数据库日期检查失败: {e}，默认回退至 T-2。")
-            max_db_date = None
             
-        # 2. Decide Target
-        if max_db_date == yesterday_str:
-            target_date = now - timedelta(days=1)
-            print(f"   [智能感知] 数据库已同步最新数据 ({max_db_date})。")
-            print(f"   [目标设定] 自动瞄准 T-1 (昨日): {target_date.strftime('%Y-%m-%d')}")
-        else:
-            # Fallback to T-2
-            target_date = now - timedelta(days=2) 
-            print(f"   [智能感知] T-1 ({yesterday_str}) 数据尚未入库 (最新: {max_db_date})。")
-            print(f"   [目标设定] 自动瞄准 T-2 (前日): {target_date.strftime('%Y-%m-%d')}")
+            # 1. Get latest TSA data (Ground Truth)
+            # traffic_full contains the merged data with 'throughput'.
+            # traffic_full's max date is the last day we KNOW the answer for.
+            row_tsa = conn.execute("SELECT MAX(date) FROM traffic_full WHERE throughput IS NOT NULL").fetchone()
+            max_tsa_date_str = row_tsa[0] if row_tsa else '2020-01-01'
+            
+            # 2. Get latest Flight data (OpenSky)
+            row_flight = conn.execute("SELECT MAX(date) FROM flight_stats").fetchone()
+            max_flight_date_str = row_flight[0] if row_flight else None
+            
+            conn.close()
+            
+            print(f"   [智能感知] TSA最新: {max_tsa_date_str} | OpenSky最新: {max_flight_date_str}")
+            
+            if not max_flight_date_str:
+                # No flight data at all, fallback to yesterday
+                target_date = datetime.now() - timedelta(days=1)
+                print(f"   [目标设定] 无航班数据，默认 T-1: {target_date.strftime('%Y-%m-%d')}")
+            else:
+                # Calculate the Gap Date
+                max_tsa_dt = datetime.strptime(max_tsa_date_str, "%Y-%m-%d")
+                gap_date = max_tsa_dt + timedelta(days=1)
+                gap_date_str = gap_date.strftime("%Y-%m-%d")
+                
+                # Check if we have flights for this gap date
+                # Actually, even if we don't have flights (e.g. today), Sniper might want to run in JIT mode?
+                # But user wants specific logic: "Use the day that HAS flights".
+                # So if Gap Date <= Max Flight Date, use Gap Date.
+                
+                max_flight_dt = datetime.strptime(max_flight_date_str, "%Y-%m-%d")
+                
+                if gap_date <= max_flight_dt:
+                    target_date = gap_date
+                    print(f"   [目标设定] 锁定未公布的最近一天 (有航班数据): {gap_date_str}")
+                else:
+                    # Case: TSA is up to date with Flights (or ahead? unlikely). 
+                    # Or Flights are lagging behind TSA (e.g. OpenSky is broken).
+                    # In this case, we default to Max Flight Date? 
+                    # If TSA=Jan23, Flights=Jan23. Target should be Jan24 (JIT)? 
+                    # But user said "Use the day that HAS flights". 
+                    # If Flights=Jan23, and TSA=Jan23, then we have NO day with "Flights but no TSA".
+                    # In that specific 100% synced case, maybe default to Max Flight Date (Jan23) just to show something?
+                    # BUT, predicting Jan 23 when we have Jan 23 actuals is redundant.
+                    # Let's target Jan 24 (Gap) and let JIT try to fetch it.
+                    target_date = gap_date
+                    print(f"   [目标设定] 航班数据未领先 TSA，尝试预测下一天 (JIT模式): {gap_date_str}")
+
+        except Exception as e:
+            print(f"   [警告] 智能逻辑失败: {e}，回退至 T-1。")
+            target_date = datetime.now() - timedelta(days=1)
 
         target = target_date.strftime("%Y-%m-%d")
     else:

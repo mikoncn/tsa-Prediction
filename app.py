@@ -158,6 +158,29 @@ def get_predictions():
         else:
             result['forecast'] = []
 
+        # [NEW] Load latest Sniper prediction (Persistence)
+        # Find latest entry in sniper_predictions
+        try:
+            row_sn = conn.execute("""
+                SELECT target_date, predicted_value, flights_volume, is_fallback 
+                FROM sniper_predictions 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            """).fetchone()
+            
+            if row_sn:
+                result['sniper_latest'] = {
+                    'date': row_sn['target_date'],
+                    'predicted_throughput': row_sn['predicted_value'],
+                    'flight_volume': row_sn['flights_volume'],
+                    'is_fallback': bool(row_sn['is_fallback'])
+                }
+            else:
+                result['sniper_latest'] = None
+        except Exception as e:
+            print(f"Failed to load saved sniper data: {e}")
+            result['sniper_latest'] = None
+
         # 2. 加载历史验证 (Validation) - From SQLite 'prediction_history' & 'traffic_full'
         # Query History (Past predictions)
         query_hist = """
@@ -447,12 +470,32 @@ def predict_sniper():
                 json_str = lines[-1]
                 data = json.loads(json_str)
                 
-                # [FIX] Check for internal script error
                 if "error" in data:
                      print(f"❌ Sniper Internal Error: {data['error']}")
                      return jsonify({'status': 'error', 'message': data['error']}), 500
                      
                 print(f"✅ Sniper Hit: {data}")
+                
+                # [NEW] Save to DB (Persistence)
+                try:
+                    conn = get_db_connection()
+                    conn.execute("""
+                        INSERT INTO sniper_predictions 
+                        (target_date, predicted_value, flights_volume, model_version, is_fallback)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        data.get('date'), 
+                        data.get('predicted_throughput'), 
+                        data.get('flight_volume'), 
+                        data.get('model'), 
+                        1 if data.get('is_fallback') else 0
+                    ))
+                    conn.commit()
+                    conn.close()
+                    print(f"💾 Sniper Result Saved to DB: {data.get('date')}")
+                except Exception as db_err:
+                    print(f"⚠️ Failed to save Sniper result: {db_err}")
+                
                 return jsonify({'status': 'success', 'data': data})
             except Exception as parse_err:
                 print(f"⚠️ JSON Parse Error: {parse_err}. Stdout: {result.stdout}")

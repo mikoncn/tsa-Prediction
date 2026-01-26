@@ -1,6 +1,6 @@
 # fetch_opensky.py - OpenSky 网络数据抓取核心脚本
 # 功能：从 OpenSky Network API 抓取美国核心枢纽机场的航班抵达数据，用于 TSA 客流模型训练。
-# 注意事项：受限于 OpenSky 的 API 积分制（Basic 账户每日 4000 点），需谨慎处理抓取频率。
+# 更新：支持多账号自动切换 (Rotation) 以应对 Rate Limit。
 
 import requests
 import sqlite3
@@ -17,43 +17,83 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from src.config import DB_PATH
 
 # 数据库与接口配置
-# DB_PATH = 'tsa_data.db'
 BASE_URL = "https://opensky-network.org/api/flights/arrival"
-# 监控美国吞吐量最大的前 10 个枢纽机场，这些机场的变动对 TSA 总量具有极强的代表性
 AIRPORTS = [
     'KATL', 'KORD', 'KDFW', 'KDEN', 'KLAX', 
     'KJFK', 'KMCO', 'KLAS', 'KCLT', 'KMIA'
 ]
 
-# OAuth2 凭据管理：OpenSky 自 2025 年 3 月起强制要求新账号使用 OAuth2 认证
+# OAuth2 凭据管理
 TOKEN_URL = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
-current_token = None
-token_expiry = 0
 
-def load_credentials():
-    """从本地 credentials.json 加载 API 身份信息"""
+# [NEW] Multi-Account State
+CREDENTIALS_LIST = []
+CURRENT_ACCOUNT_INDEX = 0
+TOKEN_CACHE = {} # Map index -> {token, expiry}
+
+def load_credentials_list():
+    """从本地 credentials.json 加载 API 身份信息列表"""
+    global CREDENTIALS_LIST
     try:
-        if not os.path.exists("credentials.json"):
+        # 尝试寻找 credentials.json
+        # 1. 当前目录
+        paths = ["credentials.json"]
+        # 2. 项目根目录 (假设脚本在 src/etl/ 中)
+        root_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        paths.append(os.path.join(root_path, "credentials.json"))
+        
+        target_path = None
+        for p in paths:
+            if os.path.exists(p):
+                target_path = p
+                break
+        
+        if not target_path:
             print("   [错误] 未找到 credentials.json 凭据文件。")
-            return None, None
+            return []
             
-        with open("credentials.json", "r") as f:
-            creds = json.load(f)
-            return creds.get("clientId"), creds.get("clientSecret")
+        with open(target_path, "r", encoding='utf-8') as f:
+            data = json.load(f)
+            
+        # 兼容旧格式（单个对象）和新格式（列表）
+        if isinstance(data, dict):
+            CREDENTIALS_LIST = [data]
+        elif isinstance(data, list):
+            CREDENTIALS_LIST = data
+        else:
+            CREDENTIALS_LIST = []
+            
+        print(f"   [系统] 加载了 {len(CREDENTIALS_LIST)} 个 API 账号。")
+        return CREDENTIALS_LIST
+        
     except Exception as e:
         print(f"   [异常] 加载凭据失败: {e}")
-        return None, None
+        return []
 
-def get_oauth_token():
-    """由于 OpenSky Token 有效期较短，该函数负责按需获取或更新 Bearer Token"""
-    global current_token, token_expiry
+def get_oauth_token(force_refresh=False):
+    """获取当前活跃账号的 Token，如果失效则刷新"""
+    global CURRENT_ACCOUNT_INDEX, TOKEN_CACHE, CREDENTIALS_LIST
     
-    # 如果系统当前已有有效 Token 且未过期，直接复用
-    if current_token and time.time() < token_expiry - 60:
-        return current_token
+    if not CREDENTIALS_LIST:
+        load_credentials_list()
+        if not CREDENTIALS_LIST:
+            return None
+
+    # 获取当前账号信息
+    account_idx = CURRENT_ACCOUNT_INDEX
+    account = CREDENTIALS_LIST[account_idx]
+    
+    # 检查缓存
+    cache = TOKEN_CACHE.get(account_idx)
+    if not force_refresh and cache and time.time() < cache['expiry'] - 60:
+        return cache['token']
         
-    client_id, client_secret = load_credentials()
-    if not client_id or not client_secret:
+    # 刷新 Token
+    client_id = account.get("clientId")
+    client_secret = account.get("clientSecret")
+    
+    if not client_id or not client_secret or "PLEASE_ENTER" in client_secret:
+        print(f"   [跳过] 账号 {client_id} 配置不完整。")
         return None
 
     data = {
@@ -63,98 +103,101 @@ def get_oauth_token():
     }
     
     try:
+        # print(f"   [授权] 正在尝试使用账号: {client_id} ...")
         resp = requests.post(TOKEN_URL, data=data, timeout=10)
         if resp.status_code == 200:
             token_data = resp.json()
-            current_token = token_data['access_token']
-            # 设置过期缓冲期
-            token_expiry = time.time() + token_data['expires_in']
-            print("   [授权] OAuth Token 已刷新。")
-            return current_token
+            token = token_data['access_token']
+            expiry = time.time() + token_data['expires_in']
+            
+            TOKEN_CACHE[account_idx] = {'token': token, 'expiry': expiry}
+            # print(f"   [授权] Token 获取成功 ({client_id})。")
+            return token
         else:
-            print(f"   [授权错误] 无法获取 Token: {resp.status_code}")
+            print(f"   [授权错误] {client_id} 获取 Token 失败: {resp.status_code}")
             return None
     except Exception as e:
-        print(f"   [授权异常] 获取 Token 失败: {e}")
+        print(f"   [授权异常] {client_id} 连接失败: {e}")
         return None
 
-def fetch_arrival_count(date_str, icao):
+def rotate_account():
+    """切换到下一个可用账号"""
+    global CURRENT_ACCOUNT_INDEX, CREDENTIALS_LIST
+    if not CREDENTIALS_LIST: return False
+    
+    old_idx = CURRENT_ACCOUNT_INDEX
+    CURRENT_ACCOUNT_INDEX = (CURRENT_ACCOUNT_INDEX + 1) % len(CREDENTIALS_LIST)
+    
+    print(f"   [切换] 触发账号切换: #{old_idx} -> #{CURRENT_ACCOUNT_INDEX}")
+    
+    # 清除旧 Token 缓存（可选，为了安全）
+    # TOKEN_CACHE.pop(old_idx, None) 
+    return True
+
+def fetch_arrival_count(date_str, icao, retry_count=0):
     """
     抓取特定日期、特定机场的航班抵达总数。
-    关键逻辑：OpenSky 接口接收 UTC 时间戳，脚本会将本地日期转换为该日 00:00 到 23:59 的 UTC 窗口。
+    支持自动轮换账号重试。
     """
+    if retry_count > len(CREDENTIALS_LIST) + 1:
+        print(f"   [失败] 已尝试所有账号，无法获取数据 ({date_str}, {icao})。")
+        return None
+
     token = get_oauth_token()
     if not token:
-        return None
+        # 当前 Token 获取失败，尝试切换账号并重试
+        if rotate_account():
+            return fetch_arrival_count(date_str, icao, retry_count + 1)
+        else:
+            return None
         
     try:
-        # 将日期字符串转换为对应的 UTC 时间戳起始和结束点
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         begin = int(dt.replace(tzinfo=timezone.utc).timestamp())
-        end = begin + 86400 # 覆盖全天 24 小时
+        end = begin + 86400
         
-        # 安全性逻辑：严禁查询未来数据，如果 end 时间超过当前系统时间，则截断至“现在”。
         now_ts = int(time.time())
-        if end > now_ts:
-            end = now_ts
-        
-        # 如果起始时间就已经在未来，直接跳过抓取
-        if begin > now_ts:
-             print(f"   [跳过] 日期 {date_str} 处于未来，无有效数据。")
-             return 0
+        if end > now_ts: end = now_ts
+        if begin > now_ts: return 0
 
-        params = {
-            'airport': icao,
-            'begin': begin,
-            'end': end
-        }
+        params = {'airport': icao, 'begin': begin, 'end': end}
+        headers = {'Authorization': f'Bearer {token}'}
         
-        headers = {
-            'Authorization': f'Bearer {token}'
-        }
-        
-        resp = requests.get(
-            BASE_URL, 
-            params=params, 
-            headers=headers, 
-            timeout=30
-        )
+        resp = requests.get(BASE_URL, params=params, headers=headers, timeout=30)
         
         if resp.status_code == 200:
             flights = resp.json()
-            if len(flights) > 0:
-                print(f"   [成功] 抓取到 {icao} 的 {len(flights)} 架次航班。采样: {flights[0].get('callsign', 'N/A')}")
-            else:
-                print(f"   [提醒] {icao} 在 {date_str} 抓取结果为 0。")
             return len(flights)
+            
         elif resp.status_code == 429:
-            print("   [警告] 触发 429 访问受限（频率/额度）。")
-            # [NEW] Failsafe for UI: If running from Dashboard, don't sleep forever
-            if '--fail-fast' in sys.argv:
-                print("   [UI模式] 快速失败，跳过等待。")
+            print(f"   [限制] 当前账号 #{CURRENT_ACCOUNT_INDEX} 触发 429 限流。")
+            if rotate_account():
+                time.sleep(1) # 短暂冷却
+                return fetch_arrival_count(date_str, icao, retry_count + 1)
+            else:
                 return None
                 
-            print("   正在进入 60 秒强制冷却期...")
-            time.sleep(60)
-            return None 
         elif resp.status_code == 401:
-             print("   [错误] 401 认证失效，Token 可能已过期。")
-             return None
+            print(f"   [认证] 当前账号 #{CURRENT_ACCOUNT_INDEX} Token 失效。")
+            # 强制刷新当前账号（可能只是过期），或者也可以选择 Rotate
+            # 这里选择 Rotate 更稳妥
+            if rotate_account():
+                return fetch_arrival_count(date_str, icao, retry_count + 1)
+            else:
+                return None
         else:
-            print(f"   [错误] {icao} 在 {date_str} 抓取失败: {resp.status_code}")
+            print(f"   [错误] {icao} {date_str} HTTP {resp.status_code}")
             return None
             
     except Exception as e:
-        print(f"   [异常] {icao} 在 {date_str} 抓取时发生故障: {e}")
+        print(f"   [异常] 抓取故障: {e}")
         return None
 
 def save_to_db(data_list):
     """批量持久化航班数据到 SQLite 数据库 flight_stats 表"""
     if not data_list: return
-    
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
-        # INSERT OR REPLACE 确保了如果重复运行脚本，数据会被最新修正的结果覆盖（如时区修正后的数据）
         conn.executemany('''
             INSERT OR REPLACE INTO flight_stats (date, airport, arrival_count)
             VALUES (?, ?, ?)
@@ -167,17 +210,19 @@ def save_to_db(data_list):
         conn.close()
 
 def get_db_connection():
-    """获取数据库连接"""
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
 def backfill(days_to_backfill=45):
-    """
-    数据回溯策略：分析历史缺口并进行自动填补。
-    """
     print(f"=== 启动历史数据回溯任务 (目标范围: 过去 {days_to_backfill} 天) ===")
     
+    # 确保加载凭据
+    load_credentials_list()
+    if not CREDENTIALS_LIST:
+        print("无可用凭据，退出。")
+        return
+
     today = datetime.now().date()
     dates_to_check = []
     for i in range(1, days_to_backfill + 1):
@@ -185,7 +230,6 @@ def backfill(days_to_backfill=45):
         dates_to_check.append(d.strftime("%Y-%m-%d"))
         
     conn = get_db_connection()
-    # 若表结构不存在则创建（date, airport 构成联合主键）
     conn.execute('''
         CREATE TABLE IF NOT EXISTS flight_stats (
             date TEXT,
@@ -197,34 +241,35 @@ def backfill(days_to_backfill=45):
     existing = pd.read_sql("SELECT date, airport, arrival_count FROM flight_stats", conn)
     conn.close()
     
-    # 构建：(日期, 机场) -> 航班数 的映射，用于质量检测
     existing_map = { (row['date'], row['airport']): row['arrival_count'] for _, row in existing.iterrows() }
     
     tasks = []
-    # 质量阈值：美国枢纽机场单日抵达量若低于 50，基本判定为抓取残片或 API 漏数
     QUALITY_THRESHOLD = 50 
     
     for d_str in dates_to_check:
-        # [NEW] 前向扫频逻辑：对最近 3 天的数据强制重新下载，以应对 OpenSky 官方的延迟修正
-        # 将日期字符串转为 offset
         dt_obj = datetime.strptime(d_str, "%Y-%m-%d").date()
-        is_very_recent = (today - dt_obj).days <= 3
+        # [逻辑] 最近 3 天总是强制检查/刷新，以应对 OpenSky 数据滞后修正
+        is_recent_window = (today - dt_obj).days <= 3
         
         for icao in AIRPORTS:
             count = existing_map.get((d_str, icao))
-            
-            # 判定是否需要重新抓取：
-            # 1. 根本没数据
-            # 2. 存在已知 Bug 日期 (1月14-15)
-            # 3. 数据质量极低 (脏数据锁死)
-            # 4. 处于“前向扫频”窗口内（最近 3 天，确保最高精度）
-            # 50 左右的数据判定为脏数据或残片，需要重刷。如果数据量达标且非空，则跳过抓取。
             is_dirty = count is not None and count < QUALITY_THRESHOLD
-            if count is None or is_dirty:
-                if is_dirty:
-                    print(f"   [检测] 发现脏数据: {icao} on {d_str} (Count: {count})，准备重刷。")
+            
+            # 如果是最近3天，即使有数据也建议重跑确认（除非已经是高质量数据，但OpenSky经常变）
+            # 这里保留原有逻辑：如果是最近3天，且数据看起来正常，是否要重跑？
+            # 原始代码逻辑是：if count is None or is_dirty: tasks.append...
+            # 这里我们稍微激进一点：如果是最近3天，总是重跑，确保最新
+            
+            should_fetch = False
+            if count is None: should_fetch = True
+            elif is_dirty: should_fetch = True
+            elif is_recent_window: should_fetch = True # 强制刷新最近数据
+            
+            if should_fetch:
                 tasks.append((d_str, icao))
     
+    # 去重
+    tasks = list(dict.fromkeys(tasks))
     print(f"=== 待处理任务总数: {len(tasks)} (含脏数据重刷与前向扫频) ===")
     
     batch = []
@@ -234,19 +279,15 @@ def backfill(days_to_backfill=45):
         count = fetch_arrival_count(d_str, icao)
         
         if count is not None:
-            # [USER RULE] 如果抓取到的数据是个位数/极低（如 < 10），说明官方还没出全，此时不存入 DB，
-            # 这样下次更新时由于库里没数，还会再次触发抓取，直到抓到正常数据。
             if count >= 10:
                 batch.append((d_str, icao, count))
             else:
-                print(f"   [丢弃] {icao} 在 {d_str} 的数据仅为 {count}，判定为未就绪，暂不落库。")
+                print(f"   [丢弃] {icao} 在 {d_str} 的数据仅为 {count}，判定为未就绪。")
         
-        # 批量保存以提升 IO 性能（每 10 次请求执行一次 Commit）
         if len(batch) >= 10:
             save_to_db(batch)
             batch = []
             
-        # 必要的礼貌延迟，防止极速请求导致的 429 封禁
         time.sleep(0.5)
         
     if batch:
@@ -255,33 +296,21 @@ def backfill(days_to_backfill=45):
     print("=== 历史回溯任务结束 ===")
 
 def run(recent=False):
-    """
-    OpenSky 数据抓取入口
-    :param recent: True=仅同步最近 3 天, False=默认回溯 45 天
-    """
     if recent:
         print("=== [UI模式] 快速同步最近 3 天数据 ===")
         backfill(days_to_backfill=3)
     else:
-        # 默认行为
         backfill(45)
 
 if __name__ == "__main__":
-    # 命令行参数逻辑优化
-    # 模式 1: python fetch_opensky.py 60  -> 深度回溯过去 60 天 (Daemon 模式)
-    # 模式 2: python fetch_opensky.py --recent -> 仅确保最近 3 天数据完整 (UI 模式)
-    
     import sys
-    
     if '--recent' in sys.argv:
         run(recent=True)
-        
     elif len(sys.argv) > 1:
-        # 数字模式，回溯指定天数
         try:
             days = int(sys.argv[1])
             backfill(days)
         except:
-            run() # Default
+            run()
     else:
         run()

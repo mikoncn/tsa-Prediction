@@ -99,6 +99,25 @@
 
 ---
 
+### `sniper_predictions` (狙击模型结果缓存)
+
+**[NEW]** 存储狙击模型的高频预测结果，用于前端持久化展示。
+
+- **用途**: 保存 Sniper 预测值，防止刷新丢失；当官方数据通过 `traffic` 进来后，此表数据仅作为历史参考。
+- **更新频率**: 每次点击“智能狙击”成功时插入 (`predict_sniper`)。
+
+| Column Name         | Type           | Description              |
+| :------------------ | :------------- | :----------------------- |
+| **id**              | `INTEGER` (PK) | 自增 ID                  |
+| **target_date**     | `TEXT`         | 目标日期 (YYYY-MM-DD)    |
+| **predicted_value** | `INTEGER`      | 预测客流 (e.g. 2345678)  |
+| **flights_volume**  | `INTEGER`      | 当日实时航班量 (架次)    |
+| **model_version**   | `TEXT`         | 模型版本 (e.g. SniperV1) |
+| **is_fallback**     | `INTEGER`      | 是否降级模式 (0/1)       |
+| **created_at**      | `TIMESTAMP`    | 创建时间                 |
+
+---
+
 ## 3. 迁移数据流变化 (Data Flow Change)
 
 ### Old Flow (Current)

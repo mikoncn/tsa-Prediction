@@ -48,7 +48,8 @@ const App = {
             options: [
                 { label: '正在计算数据...', value: '' } // Dummy init to prove binding works
             ],
-            sum: null
+            sum: null,
+            breakdown: [] // [NEW] Detail list for formula display
         });
         
         // Sniper Result
@@ -142,6 +143,16 @@ const App = {
                 // 2. Validation Table
                 if (res.validation) {
                     validationHistory.value = res.validation.reverse();
+                }
+                
+                // [NEW] Load Persisted Sniper Prediction
+                if (res.sniper_latest) {
+                    console.log("Loaded Persisted Sniper Data:", res.sniper_latest);
+                    sniperResult.date = res.sniper_latest.date;
+                    sniperResult.value = res.sniper_latest.predicted_throughput;
+                    sniperResult.flights = res.sniper_latest.flight_volume;
+                    sniperResult.is_fallback = res.sniper_latest.is_fallback;
+                    // Note: We don't auto-show the modal, but the weekly calc will pick it up via watcher.
                 }
                 
             } catch (e) { console.error(e); }
@@ -250,11 +261,18 @@ const App = {
             let sum = 0;
             let count = 0;
             
+            let breakdownList = [];
+            
+            // Debug Log
+            console.log("Calculating Weekly. Sniper State:", sniperResult.date, sniperResult.value);
+
             // Sum next 7 days starting from Monday
             for (let i = 0; i < 7; i++) {
                 const current = new Date(monday);
                 current.setDate(monday.getDate() + i);
                 const dateStr = current.getFullYear() + '-' + String(current.getMonth()+1).padStart(2,'0') + '-' + String(current.getDate()).padStart(2,'0');
+                // Chinese label "1月19日"
+                const label = current.toLocaleDateString('zh-CN', {month:'numeric', day:'numeric'});
                 
                 // 1. Try Actual Data First
                 const actual = allData.value.find(x => x.x === dateStr);
@@ -262,18 +280,34 @@ const App = {
                 if (actual && actual.y !== null) {
                     sum += actual.y;
                     count++;
-                } else {
-                    // 2. Fallback to Prediction
+                    breakdownList.push({
+                         date: dateStr, label: label, value: actual.y, type: 'history'
+                    });
+                } 
+                // 2. Check Sniper Result (High Priority Forecast)
+                else if (sniperResult.date === dateStr && sniperResult.value) {
+                    sum += sniperResult.value;
+                    count++;
+                    breakdownList.push({
+                         date: dateStr, label: label + ' (Sniper)', value: sniperResult.value, type: 'sniper'
+                    });
+                }
+                // 3. Fallback to General Prediction
+                else {
                     const p = predictions.value.find(x => x.x === dateStr);
                     if (p && p.y) {
                         sum += p.y;
                         count++;
+                        breakdownList.push({
+                             date: dateStr, label: label, value: p.y, type: 'prediction'
+                        });
                     }
                 }
             }
             
             // Update stats
             weeklyState.sum = count > 0 ? sum : null;
+            weeklyState.breakdown = breakdownList;
         };
         
         const updateWeeklyState = (val) => {
@@ -378,6 +412,8 @@ const App = {
                     sniperResult.flights = d.flight_volume;
                     sniperResult.is_fallback = d.is_fallback;
                     showSniperModal.value = true;
+                    // [FIX] Force update weekly calculation immediately
+                    generateWeeklyOptions();
                 }
             } catch(e) { alert(e); }
         };
@@ -474,8 +510,8 @@ const App = {
         
         // [NEW] Reactive Watcher to handle async data loading
         // Ensures options are generated only when ALL data is ready
-        watch([predictions, marketData, allData], () => {
-             console.log("Data updated (Predictions, Market, or History), regenerating weekly options...");
+        watch([predictions, marketData, allData, sniperResult], () => {
+             console.log("Data updated (Predictions, Market, History, or Sniper), regenerating weekly options...");
              generateWeeklyOptions();
         });
 
