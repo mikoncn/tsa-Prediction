@@ -3,6 +3,8 @@ __pycache__/
 *.log
 *.db
 credentials.json
+flightaware_key.json
+debug_features.json
 .env
 
 # Models

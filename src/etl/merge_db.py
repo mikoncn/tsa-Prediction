@@ -118,15 +118,13 @@ def run():
     # Merge weather (inner join logic effectively, but left to keep skeleton)
     df_full = df_full.merge(df_weather, on='date', how='left')
 
-    # [NEW] Merge Flight Data (OpenSky)
-    print("3.5 合并航班数据 (OpenSky)...")
+    # [ENHANCED] Merge Flight Data (OpenSky + FlightAware)
+    print("3.5 合并航班数据 (OpenSky & FlightAware Scheduled)...")
     try:
         # Load flight stats (summing over airports per date)
+        # This now includes FUTURE dates provided by FlightAware scheduled_arrivals
         df_flights = pd.read_sql("SELECT date, SUM(arrival_count) as flight_volume FROM flight_stats GROUP BY date", conn)
         df_flights['date'] = pd.to_datetime(df_flights['date'])
-        
-        # [REMOVED] Thresholding logic. Even partial data should be shown in Raw Matrix.
-        # df_flights = df_flights[df_flights['flight_volume'] > 2000]
         
         # Calculate 7-day Moving Average for flights (Baseload)
         df_flights = df_flights.sort_values('date')
@@ -137,6 +135,10 @@ def run():
         df_full['flight_volume'] = df_full['flight_volume'].fillna(0).astype(int)
         df_full['flight_ma_7'] = df_full['flight_ma_7'].fillna(0).astype(int)
         df_full['flight_lag_1'] = df_full['flight_lag_1'].fillna(0).astype(int)
+        
+        # Count future rows with flight data
+        future_flights = df_full[(df_full['date'] > pd.Timestamp.now()) & (df_full['flight_volume'] > 0)]
+        print(f"   [信息] 发现 {len(future_flights)} 条未来计划航班记录 (FlightAware 提供)。")
         
     except Exception as e:
         print(f"Warning: Could not merge flight data: {e}")

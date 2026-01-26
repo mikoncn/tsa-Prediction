@@ -104,8 +104,8 @@ def load_data_and_split():
     future_df = pd.DataFrame({'date': future_dates})
     
     # Merge existing features (Weather/Holiday/Throughput for Lags) from original df
-    # Need to keep 'throughput' column in df for lag lookup
-    cols_needed = ['date', 'weather_index', 'is_holiday', 'holiday_name', 'throughput']
+    # [NEW] Now also merging 'total_flights' which might be populated for future dates via FlightAware
+    cols_needed = ['date', 'weather_index', 'is_holiday', 'holiday_name', 'throughput', 'total_flights']
     
     # If using DB traffic_full, it might have future rows (skeleton).
     # If not, we have to rebuild them. 
@@ -159,12 +159,14 @@ def load_data_and_split():
     future_df['lag_7'] = future_df['date'].apply(lambda x: get_lag_value(x, 7, df_full_lookup))
     future_df['lag_364'] = future_df['date'].apply(lambda x: get_lag_value(x, 364, df_full_lookup))
     
-    # Calculate Future Flight Features (Persistence)
-    # We use the LAST known Flight MA 7 from history and assume it flatlines based on day of week?
-    # No, 'flight_ma_7' is a rolling mean. Flatlining the last value is decent for 7 days.
+    # Calculate Future Flight Features (Scheduled vs Persistence)
+    # 1. Use actual scheduled volume if available
+    # 2. Fallback to MA7 flatline if missing
     last_known_flight_ma = df.iloc[-1]['flight_ma_7']
-    future_df['flight_ma_7'] = last_known_flight_ma 
     
+    future_df['flight_ma_7'] = future_df['total_flights'].apply(
+        lambda x: x if (pd.notnull(x) and x > 1000) else last_known_flight_ma
+    )    
     # [CRITICAL FIX] Dynamically Calculate Holidays
     # Do NOT trust 'future_df' merged columns if they are 0
     # Recalculate is_holiday
