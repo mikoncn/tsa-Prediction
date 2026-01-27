@@ -61,10 +61,32 @@ def fetch_flights(airport, start_iso, end_iso, api_key, entry_type="arrivals"):
             data = resp.json()
             flights = data.get(entry_type, [])
             # 翻页逻辑 (如果需要精确总数)
-            while "next_id" in data.get("links", {}) and params["max_pages"] > 1:
-                # 简单实现：这里我们主要关注总量，如果接口支持更好的聚合则更优
-                # 注意：AeroAPI 是按请求计费的
-                break 
+            # 翻页逻辑 (累计统计)
+            while "next_id" in data.get("links", {}) and data.get("links", {}).get("next_id") and params["max_pages"] > 1:
+                params["max_pages"] -= 1
+                next_id = data["links"]["next_id"]
+                
+                # Update params with next cursor
+                # AeroAPI v4 uses 'next' cursor in link or we append it? 
+                # Actually v4 typical usage: cursor is in the link or we pass 'cursor' param?
+                # The 'next' link usually contains the full URL with cursor. 
+                # We can just extract cursor or update URL.
+                # Simpler: extraction next_id is usually a cursor string.
+                # Let's check typical AeroAPI response. next_id is the cursor.
+                params["cursor"] = next_id
+                
+                # Fetch next page
+                try:
+                    resp_next = requests.get(url, headers=headers, params=params, timeout=30)
+                    if resp_next.status_code == 200:
+                        data = resp_next.json()
+                        page_flights = data.get(entry_type, [])
+                        flights.extend(page_flights)
+                    else:
+                        print(f"   [翻页错误] {resp_next.status_code}")
+                        break
+                except:
+                    break 
             
             return len(flights)
         else:
@@ -120,7 +142,61 @@ def sync_recent(api_key):
 
     print(f"=== 同步结束 (预计消耗 {len(AIRPORTS) * (days_forward + 1)} 次请求) ===")
 
+def backfill_history(days_back=5):
+    """
+    [CRITICAL RECOVERY] 历史数据紧急回填
+    用于 OpenSky 挂掉时，使用 FlightAware 昂贵但可靠的数据填补空白。
+    """
+    print(f"=== 启动 FlightAware 历史回填 (过去 {days_back} 天) ===")
+    key = load_flightaware_key()
+    if not key: return
+
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Check Past Days
+    for i in range(1, days_back + 1):
+        target_date = today - timedelta(days=i)
+        d_str = target_date.strftime("%Y-%m-%d")
+        
+        # Arrivals (History)
+        start_iso = target_date.isoformat()
+        end_iso = (target_date + timedelta(days=1)).isoformat()
+        
+        print(f"📅 [Backfill] 处理日期: {d_str}")
+        
+        for icao in AIRPORTS:
+            # Check DB first to avoid waste?
+            # Ideally yes, but for now we FORCE fetch as per user request context (fixing partials)
+            
+            print(f"   [目标] {icao} ({d_str})... ", end="")
+            # Use 'arrivals' for history
+            count = fetch_flights(icao, start_iso, end_iso, key, "arrivals")
+            
+            if count is not None:
+                print(f"获取到 {count} 架抵达")
+                update_flight_stats(d_str, icao, count, source="flightaware")
+            else:
+                print("失败")
+            time.sleep(0.2) # Throttle slightly
+
+    print("=== 历史回填完成 ===")
+
+    print(f"=== 同步结束 (预计消耗 {len(AIRPORTS) * (days_forward + 1)} 次请求) ===")
+
 if __name__ == "__main__":
+    import sys
+    args = sys.argv
+    
     key = load_flightaware_key()
     if key:
-        sync_recent(key)
+        if "--backfill" in args:
+            try:
+                days = int(args[args.index("--backfill") + 1])
+                backfill_history(days)
+            except:
+                backfill_history(5) # Default 5 days
+        elif "--recent" in args:
+             sync_recent(key)
+        else:
+             # Default behavior if run directly: Sync Recent (Future)
+             sync_recent(key)

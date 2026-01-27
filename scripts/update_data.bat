@@ -48,6 +48,8 @@ python -m src.models.train_xgb
 
 echo.
 echo ==========================================
+cd /d %~dp0\..
+curl -X POST http://127.0.0.1:5001/api/update_data
 echo        All Data Updated Successfully!
 echo ==========================================
 echo.

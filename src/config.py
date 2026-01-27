@@ -4,7 +4,7 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Database Path
-DB_PATH = os.path.join(PROJECT_ROOT, 'tsa_data.db')
+DB_PATH = os.path.join(PROJECT_ROOT, 'data', 'tsa_data.db')
 
 # Model Paths
 MODEL_DIR = os.path.join(PROJECT_ROOT) 

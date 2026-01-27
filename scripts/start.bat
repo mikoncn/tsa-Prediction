@@ -5,6 +5,7 @@ echo       Mikon AI Scout - 启动脚本
 echo ==================================================
 echo.
 echo [1/2] 正在后台启动服务器 (Flask App)...
+cd /d %~dp0\..
 start /min python app.py
 
 echo.
