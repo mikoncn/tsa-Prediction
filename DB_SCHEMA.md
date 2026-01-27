@@ -1,6 +1,6 @@
 # 数据库结构与迁移规范 (Database Schema & Migration Protocol)
 
-为了实现数据流的“全数据库化”，我们将统一使用 SQLite (`tsa_data.db`) 作为唯一数据存储，移除所有中间 CSV 文件。
+为了实现数据流的“全数据库化”，我们将统一使用 SQLite (`data/tsa_data.db`) 作为唯一数据存储，移除所有中间 CSV 文件。
 
 本文档定义了当前的数据库结构以及为了支持“Weather-in-DB”而设计的新表结构。
 
@@ -17,6 +17,24 @@
 | :------------- | :---------- | :---------------- |
 | **date**       | `TEXT` (PK) | 日期 (YYYY-MM-DD) |
 | **throughput** | `INTEGER`   | TSA 每日安检人数  |
+
+---
+
+### `bts_traffic` (BTS 历史统计表)
+
+**[NEW]** 存储 2019年至今的 12 大枢纽每日航班聚合数据。
+
+- **用途**: 模型训练的高质量特征源 (Feature Source)。
+- **更新频率**: 可通过 `scripts/import_bts_to_db.py` 导入。
+
+| Column Name         | Type        | Description              |
+| :------------------ | :---------- | :----------------------- |
+| **date**            | `TEXT` (PK) | 日期 (YYYY-MM-DD)        |
+| **total_flights**   | `INTEGER`   | 12 枢纽总计划航班量      |
+| **total_cancelled** | `INTEGER`   | 总取消架次               |
+| **avg_delay**       | `REAL`      | 平均起飞延误 (分钟)      |
+| **cancel_rate**     | `REAL`      | 取消率 (Cancelled/Total) |
+| **updated_at**      | `TIMESTAMP` | 入库时间                 |
 
 ---
 
