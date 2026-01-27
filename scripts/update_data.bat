@@ -12,13 +12,8 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [2/6] Syncing recent flight data (OpenSky)...
-python -m src.etl.fetch_opensky --recent
-if %errorlevel% neq 0 (
-    echo Error: Flight data fetching failed!
-    pause
-    exit /b %errorlevel%
-)
+echo [2/6] (Skipped) Syncing recent flight data...
+echo.
 
 echo.
 echo [3/6] Fetching historical weather data...

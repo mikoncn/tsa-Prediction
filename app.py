@@ -12,7 +12,7 @@ import sys
 # Ensure src can be imported if app.py is run directly
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from src.config import DB_PATH
-from src.etl import build_tsa_db, fetch_opensky, fetch_polymarket, get_weather_features, merge_db
+from src.etl import build_tsa_db, fetch_polymarket, get_weather_features, merge_db
 from src.models import train_xgb
 
 # 获取数据库连接的助手函数
@@ -116,8 +116,9 @@ def get_predictions():
     result = {}
     
     try:
-        conn = sqlite3.connect('tsa_data.db')
-        conn.row_factory = sqlite3.Row
+
+        conn = get_db_connection()
+        # conn.row_factory = sqlite3.Row  # get_db_connection already sets this
         
         # [IMPROVED] Identify the boundary: the latest actual TSA throughput date
         # This ensures Jan 16-19 (if TSA is lagging) are treated as "Future/Forecast" in UI
@@ -317,7 +318,7 @@ def run_prediction():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # [NEW] Import Refactored Modules
-from src.etl import build_tsa_db, fetch_opensky, fetch_polymarket, get_weather_features, merge_db
+from src.etl import build_tsa_db, fetch_polymarket, get_weather_features, merge_db
 from src.models import train_xgb
 
 # ...
@@ -403,10 +404,8 @@ def update_data():
         try:
             print(f"\n🚀 [Async] 后台长耗时任务启动 (Target: {target_date if latest_unresolved else 'None'})...")
             
-            # A. [ASYNC] OpenSky 抓取 (最慢，且易 429)
-            print("🚀 [Async] 正在执行 OpenSky 航班数据抓取...")
-            try: fetch_opensky.run(recent=True) 
-            except Exception as e: print(f"⚠️ OpenSky 异步抓取失败: {e}")
+            # A. [Async] OpenSky Removed
+            # print("🚀 [Async] OpenSky Skipped (Deprecated)...")
 
             # B. [ASYNC] 重新运行深度狙击预测 (允许 JIT，补全数据)
             if latest_unresolved:

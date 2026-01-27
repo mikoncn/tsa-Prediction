@@ -17,13 +17,7 @@ if %errorlevel% neq 0 (
 echo [OK] TSA 数据更新完成.
 echo.
 
-echo [2/6] 同步 OpenSky 最新航班数据 (Recent 3 days)...
-%PYTHON_EXEC% src/etl/fetch_opensky.py --recent
-if %errorlevel% neq 0 (
-    echo [ERROR] OpenSky 数据抓取失败!
-    goto :error
-)
-echo [OK] 航班数据更新完成.
+echo [2/6] (Skipped) OpenSky Flight Data...
 echo.
 
 echo [3/6] 更新天气预报骨架 (Weather Forecast)...
