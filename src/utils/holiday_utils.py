@@ -182,3 +182,43 @@ def get_holiday_features(date_series):
     df_res.loc[mask_sb, 'is_spring_break'] = 1
     
     return df_res[['is_holiday', 'is_holiday_exact_day', 'is_holiday_travel_window', 'holiday_name', 'is_spring_break']]
+
+# ==========================================
+# 3. New Optimization Features (Classic v2)
+# ==========================================
+
+def get_holiday_intensity(holiday_name):
+    """
+    Returns an intensity score for a given holiday.
+    High intensity = Major drop on exact day (Christmas, Thanksgiving).
+    Medium intensity = Standard long weekend (Labor Day, MLK).
+    """
+    if not holiday_name: return 0
+    name = holiday_name.lower()
+    
+    # High Intensity (Extreme Drops)
+    if any(h in name for h in ['christmas', 'thanksgiving', 'new year']):
+        return 3
+    
+    # Medium Intensity (Standard Holiday Window)
+    if any(h in name for h in ['labor', 'memorial', 'king', 'washington', 'independence']):
+        return 2
+    
+    # Low Intensity (Minor or Window days)
+    return 1
+
+def get_clean_lag_date(date, holiday_dates, lag_days=7):
+    """
+    Recursively finds the nearest past date that is 'lag_days' away 
+    and is NOT a holiday. Handles the 'Pattern A' New Year hangover.
+    """
+    current_lag_date = date - pd.Timedelta(days=lag_days)
+    
+    # Limit recursion to 4 weeks to avoid infinite loops
+    for _ in range(4):
+        if current_lag_date.date() not in holiday_dates:
+            return current_lag_date
+        current_lag_date -= pd.Timedelta(days=7)
+        
+    return current_lag_date # Fallback if everything is a holiday (unlikely for 4 weeks)
+

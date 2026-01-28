@@ -42,13 +42,16 @@ def run_classic_backtest():
         test_df['pred'] = y_pred
         test_df['err'] = (abs(test_df['pred'] - test_df['y']) / test_df['y']) * 100
         
-        print(f"\n{year} Classic Results:")
-        print(f"   MAPE: {test_df['err'].mean():.2f}%")
-        
         if year == 2026:
              target = test_df[test_df['ds'] == '2026-01-25']
              if not target.empty:
-                 print(f"   Jan 25 Error: {target['err'].values[0]:.1f}% (Expected to be high without weather logic)")
+                 jan25_str = f"   Jan 25 Error: {target['err'].values[0]:.1f}% (Expected to be high without weather logic)\\n"
+                 print(jan25_str)
+                 
+        # Save Detailed CSV
+        output_csv = f"classic_errors_{year}.csv"
+        test_df[['ds', 'y', 'pred', 'err', 'day_of_week', 'month']].to_csv(output_csv, index=False)
+        print(f"Saved detailed errors to {output_csv}")
 
 if __name__ == "__main__":
     run_classic_backtest()

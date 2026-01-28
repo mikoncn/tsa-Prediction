@@ -37,7 +37,8 @@ def run_backtest():
     print("   [Shadow Model] Injecting Cancellation Rates...")
     try:
         import pickle
-        shadow_model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shadow_weather_model.pkl')
+        # [FIX] Point to src/models/shadow_weather_model.pkl
+        shadow_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'src', 'models', 'shadow_weather_model.pkl')
         if os.path.exists(shadow_model_path):
             with open(shadow_model_path, 'rb') as f:
                 shadow_model = pickle.load(f)
