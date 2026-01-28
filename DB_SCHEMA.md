@@ -109,23 +109,24 @@
 | **is_holiday_travel_window** | `INTEGER`   | 窗口期标识                           |
 | **is_spring_break**          | `INTEGER`   | 春假标识                             |
 | **throughput_lag_7**         | `REAL`      | 7 天滞后特征                         |
-| **flight_volume**            | `INTEGER`   | 航班量 (OpenSky)                     |
-| **flight_ma_7**              | `INTEGER`   | 7日航班均值                          |
-| **flight_lag_1**             | `INTEGER`   | 昨日航班量                           |
+| **predicted_cancel_rate**    | `REAL`      | **[NEW]** 影子模型预测的航班取消率   |
+| **revenge_index**            | `REAL`      | **[NEW]** 报复性反弹指数             |
 
 ---
 
 ### `prediction_history` (预测记录表)
 
-存储模型每日运行的预测结果，用于回测分析。
+存储模型每日运行的预测结果。在 V6.1 中，该表记录的是经过 **Protocol Engine** 处理后的最终值。
 
 | Column Name              | Type           | Description                            |
 | :----------------------- | :------------- | :------------------------------------- |
 | **id**                   | `INTEGER` (PK) | 自增 ID                                |
 | **target_date**          | `TEXT`         | 预测的目标日期                         |
-| **predicted_throughput** | `INTEGER`      | 预测值                                 |
-| **model_run_date**       | `TEXT`         | 模型运行日期                           |
-| **weather_index**        | `INTEGER`      | [NEW] 预测日天气熔断指数               |
+| **base_prediction**      | `INTEGER`      | **[NEW]** 算法原始预测 (未熔断前)      |
+| **predicted_throughput** | `INTEGER`      | **最终发布预测** (经熔断/补位处理)     |
+| **multiplier**           | `REAL`         | **[NEW]** 最终应用的熔断系数 (0.8-1.0) |
+| **triggered_rules**      | `TEXT`         | **[NEW]** 触发的规则描述 (如 Interp)   |
+| **weather_index**        | `INTEGER`      | 预测日天气熔断指数                     |
 | **is_holiday**           | `INTEGER`      | [NEW] 是否节日 (0/1)                   |
 | **holiday_name**         | `TEXT`         | [NEW] 节日名称 (用于前端 T-x 标签计算) |
 | **flight_volume**        | `INTEGER`      | [NEW] 预测日航班量 (Lag-1)             |

@@ -2,79 +2,71 @@
 
 > **Governance by Data, For the Prediction.**
 
-本项目是一套集**自动化数据采集**、**交互式可视化**与**高维度特征工程**于一体的航空客流分析系统。它专为捕捉“黑天鹅”事件（如极端天气、突发疫情）及复杂节假日效应而设计。目前已进化为 **"三位一体" (Trinity)** 防御体系。
+本项目是一套集**自动化数据采集**、**交互式可视化**与**高维度特征工程**于一体的航空客流分析系统。它专为捕捉“黑天鹅”事件（如极端天气、突发疫情）及复杂节假日效应而设计。目前已进化为 **"双模互补" (Dual-Core)** 防御体系。
 
 ---
 
-## 🛡️ 三位一体防御体系 (The Trinity)
+## 🛡️ 双模防御体系 (The Dual-Core)
 
-为了确保预测的绝对可靠性，我们设计了三道防线：
+为了确保预测的绝对可靠性，我们采用了两套平行的防线：
 
-### 1. 🔴 狙击模型 (The Sniper)
+### 1. 🟠 老模型 (Classic V2) - 系统的"压舱石"
 
-- **定位**：**当下盲区补全 (T-0 Nowcasting)**
-- **痛点**：TSA 官方数据滞后 24 小时发布。
-- **原理**：利用 OpenSky 实时的“航班起降数据” + 昨日客流，推算**此时此刻**的客流量。
-- **触发**：红色按钮 `🎯 狙击模型`。
+- **定位**：**常规日预测**
+- **原理**：基于历史规律、滞后特征 (Lag-7) 和基础假日逻辑。
+- **作用**：在风平浪静的日子里，提供无比稳定的基准预测 (`Base Prediction`)。
 
-### 2. 🟠 主力模型 (The Main Core)
+### 2. 🔵 新模型 (Hybrid V6.1) - 系统的"战略感应器"
 
-- **定位**：**未来趋势预测 (T+1~7 Forecasting)**
-- **核心**：**XGBoost Regressor**。
-- **原理**：基于历史规律、季节性、天气预报、节假日逻辑，生成稳健的未来 7 天预测。
-- **触发**：绿色按钮 `更新数据` 自动运行，或蓝色按钮 `🚀 立即预测`。
-
-### 3. 🟣 挑战者模型 (The Challenger)
-
-- **定位**：**独立审计员 (Independent Auditor)**
-- **核心**：**LightGBM** (与主力模型不同构)。
-- **原理**：**不信任缓存**。每次点击时，直接从数据库读取最新鲜的数据，现场重新训练。用作“二审”来验证主力模型的准确性。
-- **触发**：紫色按钮 `🟣 深度对决`。
+- **定位**：**极端天气与突变响应**
+- **机制**：**影子模型感应 + 动态补位熔断 (Scheme B) + 线性插值平滑 (Interpolation)**。
+- **作用**：通过 **影子模型 (Shadow Model)** 预测航班取消率。在 1月25日 这种极致灾难下，系统通过 **方案 B (Dynamic Floor)** 自动防止过度熔断；同时通过 **线性插值** 逻辑，在 Index 10-20 之间实现平滑的阶梯补偿，彻底消除了阶梯间的“判断死角”。
 
 ---
 
-## 🏗️ 架构全景 (v3.0 Logic)
+## 🏗️ 架构全景 (v6.1 Logic)
 
-系统采用 **ETL + 混合模型 (Hybrid Model)** 架构：
+系统采用 **ETL + 双模混合 (Hybrid Model)** 架构：
 
 ```mermaid
-graph LR
-    A["TSA 官网"] -->|Scraper| B("SQLite: traffic_full")
-    C["OpenSky 航空局"] -->|Live API| D("SQLite: flight_stats")
-    E["Open-Meteo 气象局"] -->|API| B
+graph TD
+    A["TSA 官网"] --> B("SQLite: traffic_full")
+    E["Open-Meteo"] --> B
 
-    B & D --> F{"AI Inference Engine"}
+    B --> S["🛡️ 影子模型 (Shadow Model)"]
+    S -->|预测取消率| H["🔵 Hybrid 模型 (XGBoost)"]
 
-    F --> G["🔴 Sniper (T-0)"]
-    F --> H["🟠 XGBoost (T+1~7)"]
-    F --> I["🟣 Challenger (Audit)"]
+    H -->|基础预测| P["⚙️ 动态协议引擎 (Protocol Engine)"]
+    P -->|补位逻辑+平滑插值| F["最终预测结果"]
 
-    G & H & I --> J["Dashboard (Web)"]
+    F --> J["Dashboard (Web)"]
 ```
 
 ## 🧩 核心黑科技 (Secret Sauce)
 
 ### 1. 动态节日修正 (Dynamic Holiday Logic)
 
-- **Is_Holiday_Exact_Day (正日)**: 标记感恩节、圣诞节当天，模型学会了**"正日不出门"**（负系数）。
-- **Is_Holiday_Travel_Window (窗口期)**: 标记节日前后 7 天，模型学会了**"节前大迁徙"**（正系数）。
-- **动态计算**: 抛弃静态 CSV，使用 Python `holidays` 库动态生成未来节日特征，确保永远不会“漏过”任何一个假期。
+- **正日不出门**：自动识别感恩节/圣诞节正日，应用负偏差。
+- **迁徙窗口期**：识别节前 1-3 天的高峰窗口，增强预测稳定性。
 
-- 引入 **OpenSky Network** 实时数据。发现“航班量”与“客流量”存在 0.85+ 的强相关性，并将其作为强特征引入 Sniper 和 Challenger 模型。
+### 2. 影子感应器 (Shadow Sensor)
 
-### 3. ❄️ 南方防御机制 (Southern Defense)
+- 影子模型使用 **二阶多项式回归**，对降雪量具有极强的非线性感知力。
+- 它算出的 `predicted_cancel_rate` 是 Hybrid 模型最重要的特征，帮助模型在官方数据出来前“预判”航班停飞的影响。
 
-**针对 2022年寒潮与 2026年南方暴雪研发的专用逻辑：**
+### 3. ❄️ 动态防御进化 (Advanced Protection)
 
-- **南方极寒敏感 (Southern Sensitivity)**:
-  - 针对 DFW/ATL 等南方枢纽，重新校准了气温阈值。
-  - **-10°C** 即判定为“极寒”(罚分)，**-20°C** 判定为“灾难”(熔断)。
-- **报复性反弹 (Revenge Travel Index)**:
-  - 引入 `Revenge_Index`，量化“压抑越狠，反弹越高”的补偿性出行心理。
-- **盲飞导航系统 (Blind Flight Protocol)**:
-  - **痛点**: 极端天气下，OpenSky 数据接口常因故障中断 (Data Outage)，导致模型变成“瞎子”。
-  - **方案**: 当检测到航班数据丢失时，自动切换至 **"Defensive Mode"** —— **双倍信任天气预报**。
-  - **效果**: 即使没有航班数据，也能凭天气指数精准预警崩盘 (核心崩盘日误差 < 4%，整体控制在 10% 以内)。
+**V6.1 独有的全球顶尖逻辑：**
+
+- **方案 B：动态补位 (Dynamic Floor)**:
+  - 最终预测不再无脑乘算法。
+  - 公式：`Final = min(Model_Pred, Baseline * (1 - Penalty))`
+  - **1月25日实测**：防止了在取消率 60% 时的“双重惩罚”，将误差从 23% 降至 4.5%。
+- **线性插值平滑 (Smooth Curve Interp)**:
+  - 彻底抛弃硬阶梯。从 Index 10 到 20，每一分天气指数都对应 2% 的线性降幅。
+  - **1月26日实测**：精准捕捉 Index 19 下的 **-18%** 修正，使中度灾难日误差降至 3%。
+- **报复性反弹 (Revenge Index)**:
+  - 自动计算过去 3 天的累计压抑指数，精确预测灾后第二天的“人从众”现象。
 
 ---
 
@@ -84,14 +76,14 @@ graph LR
   - `start.bat`: **🚀 一键启动**. 自动拉起后台服务并打开浏览器，小白专用。
   - `update_data.bat`: **一键司令部**. 串联爬虫、天气、融合、训练全流程。
   - `daily_job.bat`: **自动任务**. 每日凌晨自动运行的后台脚本。
-- `data/`: **数据核心**. 存放 SQLite 数据库 (`tsa_data.db`) 及 BTS 历史数据 (`bts_daily_stats.csv`)。
+- `data/`: **数据核心 (Single Source of Truth)**。
+  - `tsa_data.db`: 系统的核心 SQLite 数据库，包含所有历史客流、天气索引及预测记录。
+  - `bts_daily_stats.csv`: 基础历史参考数据。
 - `src/`
   - `etl/`: **数据管道**. 包含 OpenSky, FlightAware (合并版), Weather, Polymarket 抓取脚本。
-  - `models/`: **大脑**. XGBoost, Sniper, Challenger 模型源码。
-  - `services/`: **后台服务**.
-    - `faa_monitor.py`: 全天候 FAA 机场延误监控器。
-  - `utils/`: **工具箱**. 节假日计算等通用逻辑。
-- `app.py`: **Web 后端 (Flask)**.
+  - `models/`: **大脑**. 包含核心混合模型 (Hybrid) 与影子模型 (Shadow) 的逻辑。
+- `app.py`: **Web 后端 (Flask)**. 唯一的 Web 入口，连接 `data/tsa_data.db`。
+- `rolling_backtest.py`: **回测核心工具**. 用于验证全月或特定时间段的预测精度，是系统稳定性的唯一审计工具。
 
 ## 🚀 快速开始
 

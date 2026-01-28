@@ -11,6 +11,7 @@ import sys
 # Add src to path if run directly
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.config import DB_PATH, FORECAST_MODEL_PATH
+from src.models.feature_mgr import FEAT_HYBRID, SHADOW_FEATURES, apply_blind_protocol
 
 warnings.filterwarnings('ignore')
 
@@ -91,13 +92,7 @@ def run():
             
             # 2. Predict Cancel Rate
             print("   [Shadow Model] Predicting cancel rates for all known weather dates...")
-            shadow_features = [
-                'max_snow', 'mean_snow', 
-                'max_snow_sq', 'mean_snow_sq', # <--- [NEW]
-                'max_wind', 'mean_wind', 
-                'max_precip', 'mean_precip', 'min_temp', 'mean_temp', 
-                'national_severity', 'month', 'day_of_year'
-            ]
+            shadow_features = SHADOW_FEATURES
             
             # Ensure features present
             X_shadow = df_weather_agg[shadow_features].fillna(0)
@@ -131,13 +126,8 @@ def run():
     df['week_of_year'] = df['ds'].dt.isocalendar().week.astype(int)
     df['is_weekend'] = df['day_of_week'].isin([5, 6]).astype(int)
 
-    # B. 滞后特征 (Lag Features)
-    # df['throughput_lag_7'] might come from DB, else calculate
-    if 'throughput_lag_7' not in df.columns:
-        df['throughput_lag_7'] = df['y'].shift(7)
-        
-    df['lag_7'] = df['throughput_lag_7']
-    df['lag_364'] = df['y'].shift(364)
+    df['lag_7'] = df['y'].shift(7).fillna(method='bfill')
+    df['lag_364'] = df['y'].shift(364).fillna(method='bfill')
 
     # C. 业务特征 (Business Logic)
     match_month = df['ds'].dt.month.isin([1, 2, 9, 10])
@@ -226,6 +216,11 @@ def run():
         elif best_dist < -14: best_dist = -15
         df.at[idx, 'days_to_nearest_holiday'] = best_dist
 
+    # [NEW] Spring Break Logic
+    df['is_spring_break'] = 0
+    mask_sb = (df['ds'].dt.month.isin([3, 4])) & (df['ds'].dt.dayofweek.isin([5, 6])) & (df['is_holiday'] == 0)
+    df.loc[mask_sb, 'is_spring_break'] = 1
+
     # [NEW] Weather Rebound Logic (Revenge Travel Index)
     # Logic: Higher past weather indices = Higher current pent-up demand
     # revenge_index = 0.5*w_lag_1 + 0.3*w_lag_2 + 0.2*w_lag_3
@@ -239,24 +234,13 @@ def run():
     mask_long = (df['is_holiday'] == 1) & (df['day_of_week'].isin([0, 4]))
     df.loc[mask_long, 'is_long_weekend'] = 1
 
-    # [NEW] Multiplicative Interaction Features
-    # Allow model to learn "Effective Throughput" = Lag * (1 - CancelRate)
-    # This replaces the need for "Hard Override" by giving the model the right signal.
     df['lag_7_adjusted'] = df['lag_7'] * (1 - df['predicted_cancel_rate'])
+    df['lag_364_adjusted'] = df['lag_364'] * (1 - df['predicted_cancel_rate'])
     # [NEW] Fear Feature (Look-Ahead - Anticipation)
     df['lead_1_shadow_cancel_rate'] = df['predicted_cancel_rate'].shift(-1).fillna(0)
 
     # D. 填充缺失值
-    features = [
-        'day_of_week', 'month', 'year', 'day_of_year', 'week_of_year', 'is_weekend',
-        'weather_index', 'is_holiday', 'is_spring_break', 'is_off_peak_workday',
-        'is_holiday_exact_day', 'days_to_nearest_holiday',
-        'predicted_cancel_rate', 
-        'revenge_index', 'is_long_weekend',
-        'lag_7', 'lag_364', 
-        'lag_7_adjusted', 'lag_364_adjusted',
-        'lead_1_shadow_cancel_rate' # <--- [NEW] Fear Feature
-    ]
+    features = FEAT_HYBRID
 
     # Ensure cols exist
     for col in features:
@@ -582,36 +566,11 @@ def run():
         # Hack: Since we are running this usually for "Next 7 Days", we likely have today's weather in DB.
         # Let's try to map 'w_lag_1' by joining.
         
-        def apply_blind_protocol(row):
-            val = row['predicted_throughput']
-            w_idx = row.get('weather_index', 0)
-            
-            # [NEW] Hangover Logic
-            # We need yesterday's index. 
-            w_lag_1 = row.get('w_lag_1', 0) 
-            
-            # [NEW] Fear Logic (Anticipation)
-            # We need tomorrow's Shadow Forecast
-            lead_1 = row.get('lead_1_shadow_cancel_rate', 0)
-            
-            multiplier = 1.0
-            
-            # 1. Blind Protocol (Today)
-            if w_idx >= 30: multiplier = 0.75 # Hybrid Penalty
-            elif w_idx >= 20: multiplier = 0.85
-            elif w_idx >= 15: multiplier = 0.95
-            
-            # 2. Hangover Rule (Yesterday)
-            if w_lag_1 >= 30:
-                print(f"      -> LIMIT BREAK: Yesterday Weather {w_lag_1} >= 30. Hangover Penalty -10%.")
-                multiplier *= 0.90
-                
-            # 3. Fear Rule (Tomorrow)
-            if lead_1 > 0.20:
-                print(f"      -> LIMIT BREAK: Tomorrow Cancel Rate {lead_1:.2%} > 20%. Fear Penalty -10%.")
-                multiplier *= 0.90
-                
-            return int(val * multiplier)
+        # [NEW] Applying Blind Flight Protocol (Scheme B: Dynamic Floor)
+        future_df['predicted_throughput'] = future_df.apply(
+            lambda row: apply_blind_protocol(row['predicted_throughput'], row, baseline_pred=row.get('lag_7', 0)), 
+            axis=1
+        )
         
         # We need to ensure 'w_lag_1' is in future_df
         # Let's pull it from the DB for accuracy
@@ -633,7 +592,8 @@ def run():
              return df
         future_df = fix_cols(future_df)
 
-        future_df['predicted_throughput'] = future_df.apply(apply_blind_protocol, axis=1)
+        # (Already applied above with Scheme B logic)
+        # future_df['predicted_throughput'] = future_df.apply(apply_blind_protocol, axis=1)
 
         # 保存预测结果
         future_df[['ds', 'predicted_throughput']].to_csv("xgb_forecast.csv", index=False)

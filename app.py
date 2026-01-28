@@ -159,28 +159,7 @@ def get_predictions():
         else:
             result['forecast'] = []
 
-        # [NEW] Load latest Sniper prediction (Persistence)
-        # Find latest entry in sniper_predictions
-        try:
-            row_sn = conn.execute("""
-                SELECT target_date, predicted_value, flights_volume, is_fallback 
-                FROM sniper_predictions 
-                ORDER BY created_at DESC 
-                LIMIT 1
-            """).fetchone()
-            
-            if row_sn:
-                result['sniper_latest'] = {
-                    'date': row_sn['target_date'],
-                    'predicted_throughput': row_sn['predicted_value'],
-                    'flight_volume': row_sn['flights_volume'],
-                    'is_fallback': bool(row_sn['is_fallback'])
-                }
-            else:
-                result['sniper_latest'] = None
-        except Exception as e:
-            print(f"Failed to load saved sniper data: {e}")
-            result['sniper_latest'] = None
+        result['sniper_latest'] = None
 
         # 2. 加载历史验证 (Validation) - From SQLite 'prediction_history' & 'traffic_full'
         # Query History (Past predictions)
@@ -369,15 +348,6 @@ def update_data():
         except Exception as fe:
             print(f"⚠️ Polymarket 同步失败: {fe}")
 
-        # B. [SYNC] 实时运行快速狙击预测 (skip_jit=True，不等待 OpenSky)
-        print(f"🎯 [Sync] 正在为 {target_date} 启动快速狙击预测...")
-        from src.models import predict_sniper
-        try:
-            # 使用 skip_jit=True 确保不会因为 OpenSky 429 或耗时而阻塞
-            sniper_result = predict_sniper.train_and_predict(target_date, skip_jit=True)
-            if sniper_result and "error" in sniper_result: sniper_result = None
-        except Exception as se:
-            print(f"⚠️ Sniper 快速预测失败: {se}")
 
         # C. 提取最新的市场共识 (从刚刚同步完成的数据库中读取)
         try:
@@ -408,11 +378,7 @@ def update_data():
             # print("🚀 [Async] OpenSky Skipped (Deprecated)...")
 
             # B. [ASYNC] 重新运行深度狙击预测 (允许 JIT，补全数据)
-            if latest_unresolved:
-                try: 
-                    print(f"🎯 [Async] 正在为 {target_date} 重新运行深度狙击预测 (允许 JIT)...")
-                    predict_sniper.train_and_predict(target_date, skip_jit=False)
-                except: pass
+            # Removed sniper related code
 
             # C. [ASYNC] 全量 ETL 流水线
             print("🚀 [Async] 正在执行全量 ETL 合并与模型重训...")
@@ -434,82 +400,14 @@ def update_data():
         'message': '数据已实时同步并返回，全量更新已在后台触发。',
         'prediction_sources': {
             'long_term_forecast': latest_unresolved,
-            'short_term_sniper': sniper_result,
+            'short_term_sniper': None,
             'market_sentiment': market_consensus
         },
         'timestamp': pd.Timestamp.now().isoformat()
     })
 
 # API: 狙击模型 (T+0 Nowcasting)
-@app.route('/api/predict_sniper', methods=['POST'])
-def predict_sniper():
-    try:
-        import subprocess
-        import sys
-        import json
-        
-        # Determine target date? For now default to script default (Today/Tomorrow)
-        # Or accept from JSON body if needed
-        
-        print("🎯 启动狙击模型 (Sniper Mode)...")
-        
-        # Run script
-        result = subprocess.run(
-            [sys.executable, '-m', 'src.models.predict_sniper'],
-            capture_output=True,
-            text=True,
-            encoding='utf-8', 
-            errors='replace',
-            cwd=os.getcwd(),
-            timeout=30 # Fast timeout
-        )
-        
-        if result.returncode == 0:
-            # Parse JSON from stdout
-            try:
-                # Script might print other things, find the JSON line
-                lines = result.stdout.strip().split('\n')
-                # Assume last line is JSON
-                json_str = lines[-1]
-                data = json.loads(json_str)
-                
-                if "error" in data:
-                     print(f"❌ Sniper Internal Error: {data['error']}")
-                     return jsonify({'status': 'error', 'message': data['error']}), 500
-                     
-                print(f"✅ Sniper Hit: {data}")
-                
-                # [NEW] Save to DB (Persistence)
-                try:
-                    conn = get_db_connection()
-                    conn.execute("""
-                        INSERT INTO sniper_predictions 
-                        (target_date, predicted_value, flights_volume, model_version, is_fallback)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (
-                        data.get('date'), 
-                        data.get('predicted_throughput'), 
-                        data.get('flight_volume'), 
-                        data.get('model'), 
-                        1 if data.get('is_fallback') else 0
-                    ))
-                    conn.commit()
-                    conn.close()
-                    print(f"💾 Sniper Result Saved to DB: {data.get('date')}")
-                except Exception as db_err:
-                    print(f"⚠️ Failed to save Sniper result: {db_err}")
-                
-                return jsonify({'status': 'success', 'data': data})
-            except Exception as parse_err:
-                print(f"⚠️ JSON Parse Error: {parse_err}. Stdout: {result.stdout}")
-                return jsonify({'status': 'error', 'message': '无法解析模型输出', 'raw': result.stdout}), 500
-        else:
-            print(f"❌ Sniper Missed: {result.stderr}")
-            return jsonify({'status': 'error', 'message': '模型运行失败', 'error': result.stderr}), 500
-            
-    except Exception as e:
-        print(f"❌ Sniper Error: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 @app.route('/api/run_challenger', methods=['POST'])
 def run_challenger():
